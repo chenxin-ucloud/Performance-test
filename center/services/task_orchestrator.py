@@ -100,7 +100,8 @@ class TaskOrchestrator:
             if srv_start and srv_start.get("error"):
                 raise RuntimeError(f"Failed to start iperf3 server on {server.name}: {srv_start['error']}")
 
-            time.sleep(0.5)  # Give server time to bind
+            # Verify server is actually listening
+            time.sleep(0.3)
 
             # Phase 2: Start metrics collection on both nodes
             self._agent_post(client, "/agent/metrics/start", {"test_id": test.id})
@@ -126,7 +127,15 @@ class TaskOrchestrator:
             # Phase 5: Fetch client result
             client_result_raw = self._agent_get(client, "/agent/iperf3/client/result")
             if client_result_raw and not client_result_raw.get("error"):
-                self._save_iperf_result(test, client, "client", client_result_raw.get("raw_json", ""))
+                raw_json = client_result_raw.get("raw_json", "")
+                if raw_json:
+                    self._save_iperf_result(test, client, "client", raw_json)
+                else:
+                    sse_manager.publish(test.id, {
+                        "type": "status",
+                        "status": "warning",
+                        "message": f"Client on {client.name} returned empty result"
+                    })
 
             # Phase 6: Bidirectional if requested
             if test.bidirectional and not stop_event.is_set():
@@ -152,7 +161,9 @@ class TaskOrchestrator:
                 self._poll_progress(test, server, client, stop_event)
                 server_result_raw = self._agent_get(server, "/agent/iperf3/client/result")
                 if server_result_raw and not server_result_raw.get("error"):
-                    self._save_iperf_result(test, server, "client", server_result_raw.get("raw_json", ""))
+                    raw_json = server_result_raw.get("raw_json", "")
+                    if raw_json:
+                        self._save_iperf_result(test, server, "client", raw_json)
 
             # Phase 7: CPS measurement if requested
             if test.measure_cps and not stop_event.is_set():
@@ -213,16 +224,33 @@ class TaskOrchestrator:
                 self._agent_post(client_node, "/agent/iperf3/client/stop")
                 break
 
-            # Poll client metrics
+            # Poll client metrics (includes network rates)
             client_metrics = self._agent_get(client_node, "/agent/metrics/current", timeout=3)
             # Poll server metrics
             server_metrics = self._agent_get(server_node, "/agent/metrics/current", timeout=3)
 
+            cm = client_metrics if client_metrics and not client_metrics.get("error") else {}
+            sm = server_metrics if server_metrics and not server_metrics.get("error") else {}
+
             data = {
                 "type": "metrics",
                 "elapsed": round(time.time() - start_time, 1),
-                "client": client_metrics if client_metrics and not client_metrics.get("error") else {},
-                "server": server_metrics if server_metrics and not server_metrics.get("error") else {},
+                "client": {
+                    "cpu_percent": cm.get("cpu_percent", 0),
+                    "memory_percent": cm.get("memory_percent", 0),
+                    "network_tx_mbps": cm.get("network_tx_mbps", 0),
+                    "network_rx_mbps": cm.get("network_rx_mbps", 0),
+                    "network_tx_pps": cm.get("network_tx_pps", 0),
+                    "network_rx_pps": cm.get("network_rx_pps", 0),
+                },
+                "server": {
+                    "cpu_percent": sm.get("cpu_percent", 0),
+                    "memory_percent": sm.get("memory_percent", 0),
+                    "network_tx_mbps": sm.get("network_tx_mbps", 0),
+                    "network_rx_mbps": sm.get("network_rx_mbps", 0),
+                    "network_tx_pps": sm.get("network_tx_pps", 0),
+                    "network_rx_pps": sm.get("network_rx_pps", 0),
+                },
             }
             sse_manager.publish(test.id, data)
             time.sleep(AGENT_POLL_INTERVAL)

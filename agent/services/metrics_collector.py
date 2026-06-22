@@ -69,11 +69,9 @@ class MetricsCollector:
             snap = self._take_snapshot()
             with self._lock:
                 for test_id in list(self._snapshots.keys()):
-                    # Deep copy snapshot for each test
                     test_snap = dict(snap)
                     test_snap["test_id"] = test_id
                     self._snapshots[test_id].append(test_snap)
-                    # Limit history size
                     if len(self._snapshots[test_id]) > METRICS_MAX_SNAPSHOTS:
                         self._snapshots[test_id].pop(0)
             time.sleep(interval)
@@ -84,12 +82,30 @@ class MetricsCollector:
         cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
         mem = psutil.virtual_memory()
         net = psutil.net_io_counters()
+        now = time.time()
 
-        # Calculate network deltas (MB/s) - this is tricky without per-test tracking,
-        # so we just report total counters and let the center compute deltas if needed.
-        # For simplicity, report raw counters here; the center can diff if it wants.
-        rx_mb = net.bytes_recv / (1024.0 * 1024.0)
-        tx_mb = net.bytes_sent / (1024.0 * 1024.0)
+        # Calculate network rates (Mbps and pps) for each test
+        with self._lock:
+            for test_id in list(self._snapshots.keys()):
+                last = self._last_net_counters.get(test_id)
+                if last:
+                    delta_t = now - last["time"]
+                    if delta_t > 0:
+                        delta_tx = net.bytes_sent - last["bytes_sent"]
+                        delta_rx = net.bytes_recv - last["bytes_recv"]
+                        delta_tx_pkt = net.packets_sent - last["packets_sent"]
+                        delta_rx_pkt = net.packets_recv - last["packets_recv"]
+                        self._snapshots[test_id][-1]["network_tx_mbps"] = round((delta_tx * 8) / (1024 * 1024) / delta_t, 2)
+                        self._snapshots[test_id][-1]["network_rx_mbps"] = round((delta_rx * 8) / (1024 * 1024) / delta_t, 2)
+                        self._snapshots[test_id][-1]["network_tx_pps"] = round(delta_tx_pkt / delta_t, 0)
+                        self._snapshots[test_id][-1]["network_rx_pps"] = round(delta_rx_pkt / delta_t, 0)
+                self._last_net_counters[test_id] = {
+                    "bytes_sent": net.bytes_sent,
+                    "bytes_recv": net.bytes_recv,
+                    "packets_sent": net.packets_sent,
+                    "packets_recv": net.packets_recv,
+                    "time": now,
+                }
 
         return {
             "timestamp": datetime.utcnow().isoformat(),
@@ -98,8 +114,12 @@ class MetricsCollector:
             "memory_percent": mem.percent,
             "memory_used_mb": mem.used / (1024.0 * 1024.0),
             "memory_total_mb": mem.total / (1024.0 * 1024.0),
-            "network_rx_mb": rx_mb,
-            "network_tx_mb": tx_mb,
+            "network_rx_mb": net.bytes_recv / (1024.0 * 1024.0),
+            "network_tx_mb": net.bytes_sent / (1024.0 * 1024.0),
+            "network_tx_mbps": 0,
+            "network_rx_mbps": 0,
+            "network_tx_pps": 0,
+            "network_rx_pps": 0,
         }
 
 

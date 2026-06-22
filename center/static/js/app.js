@@ -206,12 +206,25 @@ function onStreamMessage(data) {
     updateDualChart(cpuChart, label, client.cpu_percent || 0, server.cpu_percent || 0);
     updateDualChart(memChart, label, client.memory_percent || 0, server.memory_percent || 0);
 
-    // Bandwidth (from client metrics, rough estimate using network counters if available)
-    // Since agent doesn't directly report iperf3 interval data through metrics/current,
-    // we show CPU/Mem live. After test, we show real iperf3 results.
-    // For now, leave BW/PPS charts to be populated from results after completion.
+    // Bandwidth: use client tx (outbound from client) as the test bandwidth
+    const bwClient = client.network_tx_mbps || 0;
+    const bwServer = server.network_rx_mbps || 0;
+    const bw = Math.max(bwClient, bwServer);
+    if (bw > peakBw) peakBw = bw;
+    updateChart(bwChart, label, bw);
+
+    // PPS: use max of client tx pps and server rx pps
+    const ppsClient = client.network_tx_pps || 0;
+    const ppsServer = server.network_rx_pps || 0;
+    const pps = Math.max(ppsClient, ppsServer);
+    if (pps > peakPps) peakPps = pps;
+    updateChart(ppsChart, label, pps / 1000); // show in Kpps
 
     // Update metric cards
+    document.getElementById('bwValue').textContent = bw.toFixed(2) + ' Mbps';
+    document.getElementById('bwPeak').textContent = '峰值: ' + peakBw.toFixed(2) + ' Mbps';
+    document.getElementById('ppsValue').textContent = (pps / 1000).toFixed(2) + ' Kpps';
+    document.getElementById('ppsPeak').textContent = '峰值: ' + (peakPps / 1000).toFixed(2) + ' Kpps';
     document.getElementById('clientCpu').textContent = (client.cpu_percent || 0).toFixed(1) + '%';
     document.getElementById('serverCpu').textContent = (server.cpu_percent || 0).toFixed(1) + '%';
     document.getElementById('clientMem').textContent = (client.memory_percent || 0).toFixed(1) + '%';
