@@ -43,7 +43,16 @@ cp -r . "$INSTALL_DIR/"
 pip3 install -q -r "$INSTALL_DIR/requirements.txt"
 
 # Install systemd service
-cp "$INSTALL_DIR/deploy/agent.service" "$SERVICE_FILE"
+SERVICE_SRC=""
+if [ -f "./deploy/agent.service" ]; then
+    SERVICE_SRC="./deploy/agent.service"
+elif [ -f "../deploy/agent.service" ]; then
+    SERVICE_SRC="../deploy/agent.service"
+else
+    echo "ERROR: deploy/agent.service not found."
+    exit 1
+fi
+cp "$SERVICE_SRC" "$SERVICE_FILE"
 
 # Reload and start
 systemctl daemon-reload
