@@ -31,13 +31,26 @@ mkdir -p "$INSTALL_DIR"
 
 # NOTE: In production, you would download agent files from the center server or a git repo.
 # For this installer to work, the agent directory should be copied/scp'd to the node first.
-if [ ! -f "agent.py" ]; then
-    echo "ERROR: agent.py not found in current directory."
-    echo "Please copy the agent/ directory to this machine first, then run this script from inside it."
+# We support running from either:
+#   - the agent/ directory itself (where agent.py lives)
+#   - the project root (where agent/ is a subdirectory)
+
+AGENT_SRC=""
+if [ -f "agent.py" ]; then
+    # Running from inside agent/ directory
+    AGENT_SRC="."
+    echo "Detected agent.py in current directory."
+elif [ -f "agent/agent.py" ]; then
+    # Running from project root
+    AGENT_SRC="agent"
+    echo "Detected agent.py in agent/ subdirectory."
+else
+    echo "ERROR: agent.py not found."
+    echo "Please run this script from the agent/ directory, or from the project root where agent/ exists."
     exit 1
 fi
 
-cp -r . "$INSTALL_DIR/"
+cp -r "$AGENT_SRC/"* "$INSTALL_DIR/"
 
 # Install Python dependencies
 pip3 install -q -r "$INSTALL_DIR/requirements.txt"
