@@ -63,9 +63,10 @@ class TestRun(db.Model):
     measure_cps = db.Column(db.Boolean, default=False)
 
     # Status tracking
-    status = db.Column(db.String(32), default="pending")  # pending, running, completed, failed, interrupted
+    status = db.Column(db.String(32), default="pending")
     started_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
     client_node = db.relationship("Node", foreign_keys=[client_node_id], back_populates="client_tests")

@@ -15,24 +15,32 @@ class TaskOrchestrator:
     """Manages the lifecycle of a performance test across remote nodes."""
 
     def __init__(self):
-        self._running_tests = {}  # test_id -> threading.Event (stop signal)
+        self._running_tests = {}
         self._lock = threading.Lock()
+        self._app = None
+
+    def set_app(self, app):
+        """Set the Flask app reference for app_context."""
+        self._app = app
 
     def dispatch_test(self, test_id):
         """Dispatch a test to remote nodes and manage its lifecycle."""
-        test = TestRun.query.get(test_id)
-        if not test:
+        if not self._app:
             return
+        with self._app.app_context():
+            test = TestRun.query.get(test_id)
+            if not test:
+                return
 
-        stop_event = threading.Event()
-        with self._lock:
-            self._running_tests[test_id] = stop_event
-
-        try:
-            self._run_test(test, stop_event)
-        finally:
+            stop_event = threading.Event()
             with self._lock:
-                self._running_tests.pop(test_id, None)
+                self._running_tests[test_id] = stop_event
+
+            try:
+                self._run_test(test, stop_event)
+            finally:
+                with self._lock:
+                    self._running_tests.pop(test_id, None)
 
     def stop_test(self, test_id):
         """Signal a running test to stop."""

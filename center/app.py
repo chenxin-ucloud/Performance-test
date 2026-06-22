@@ -6,6 +6,8 @@ from routes.api import api_bp
 import config
 
 
+from services.task_orchestrator import orchestrator
+
 def create_app():
     app = Flask(
         __name__,
@@ -19,6 +21,7 @@ def create_app():
     with app.app_context():
         db.create_all()
 
+    orchestrator.set_app(app)
     return app
 
 
