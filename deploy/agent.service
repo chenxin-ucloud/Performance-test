@@ -1,0 +1,16 @@
+[Unit]
+Description=PerfTest Agent
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/perftest-agent
+ExecStart=/usr/bin/python3 /opt/perftest-agent/agent.py
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

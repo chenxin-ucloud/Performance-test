@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linux 性能测试平台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <h1>🚀 Linux 性能测试平台</h1>
+        <span class="subtitle">Iperf3 打流 · PPS · CPS · CPU/内存监控</span>
+    </header>
+
+    <main class="dashboard">
+        <!-- Left Panel: Node Management + Test Config -->
+        <aside class="left-panel">
+            <!-- Node Management -->
+            <section class="panel-section">
+                <h2>📡 节点管理</h2>
+                <div class="node-list" id="nodeList">
+                    <table>
+                        <thead>
+                            <tr><th>名称</th><th>地址</th><th>状态</th><th>操作</th></tr>
+                        </thead>
+                        <tbody id="nodeTableBody"></tbody>
+                    </table>
+                </div>
+                <form id="addNodeForm" class="form-compact">
+                    <input type="text" id="nodeName" placeholder="节点名称" required>
+                    <input type="text" id="nodeHost" placeholder="IP/主机名" required>
+                    <input type="number" id="nodePort" placeholder="Agent端口" value="5001">
+                    <input type="text" id="nodeDesc" placeholder="描述 (可选)">
+                    <button type="submit">➕ 添加节点</button>
+                </form>
+            </section>
+
+            <!-- Test Configuration -->
+            <section class="panel-section">
+                <h2>⚙️ 测试配置</h2>
+                <form id="testConfigForm">
+                    <div class="form-row">
+                        <label>客户端节点</label>
+                        <select id="clientNode" required></select>
+                    </div>
+                    <div class="form-row">
+                        <label>服务端节点</label>
+                        <select id="serverNode" required></select>
+                    </div>
+                    <div class="form-row">
+                        <label>协议</label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="protocol" value="tcp" checked> TCP</label>
+                            <label><input type="radio" name="protocol" value="udp"> UDP</label>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label>测试时长 (秒)</label>
+                        <input type="number" id="duration" value="10" min="1" max="3600">
+                    </div>
+                    <div class="form-row">
+                        <label>并行流数</label>
+                        <input type="number" id="parallelStreams" value="1" min="1" max="128">
+                    </div>
+                    <div class="form-row">
+                        <label>带宽限制 (如 100M)</label>
+                        <input type="text" id="bandwidthLimit" placeholder="可选">
+                    </div>
+                    <div class="form-row checkbox-row">
+                        <label><input type="checkbox" id="reverseMode"> 反向模式 (服务端→客户端)</label>
+                    </div>
+                    <div class="form-row checkbox-row">
+                        <label><input type="checkbox" id="bidirectional"> 双向测试</label>
+                    </div>
+                    <div class="form-row checkbox-row">
+                        <label><input type="checkbox" id="measureCps"> 测量 CPS</label>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" id="startTestBtn" class="btn-primary">▶ 开始测试</button>
+                        <button type="button" id="stopTestBtn" class="btn-danger" disabled>⏹ 停止测试</button>
+                    </div>
+                </form>
+            </section>
+        </aside>
+
+        <!-- Right Panel: Live Metrics -->
+        <section class="right-panel">
+            <div class="status-bar" id="statusBar">
+                <span class="status-text">就绪</span>
+                <span class="timer" id="timer"></span>
+            </div>
+
+            <div class="metric-cards" id="metricCards">
+                <div class="metric-card">
+                    <div class="metric-label">带宽</div>
+                    <div class="metric-value" id="bwValue">-</div>
+                    <div class="metric-sub" id="bwPeak">峰值: -</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">PPS</div>
+                    <div class="metric-value" id="ppsValue">-</div>
+                    <div class="metric-sub" id="ppsPeak">峰值: -</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">并发连接</div>
+                    <div class="metric-value" id="connValue">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">CPS</div>
+                    <div class="metric-value" id="cpsValue">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">客户端 CPU</div>
+                    <div class="metric-value" id="clientCpu">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">服务端 CPU</div>
+                    <div class="metric-value" id="serverCpu">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">客户端内存</div>
+                    <div class="metric-value" id="clientMem">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">服务端内存</div>
+                    <div class="metric-value" id="serverMem">-</div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-container">
+                    <canvas id="bwChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="ppsChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="memChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Bottom Panel: Test History -->
+    <section class="history-panel">
+        <h2>📊 测试历史</h2>
+        <div class="history-table-wrapper">
+            <table id="historyTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>客户端 → 服务端</th>
+                        <th>协议</th>
+                        <th>时长</th>
+                        <th>流数</th>
+                        <th>平均带宽</th>
+                        <th>峰值带宽</th>
+                        <th>CPS</th>
+                        <th>状态</th>
+                        <th>时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTableBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Test Detail Modal -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <span class="modal-close" id="modalClose">&times;</span>
+            <h2>测试详情</h2>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
