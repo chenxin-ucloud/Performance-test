@@ -57,10 +57,13 @@ class TaskOrchestrator:
     def _agent_request(self, method, node, path, json_data=None, timeout=None, retries=3):
         """Make HTTP request with retry logic."""
         url = self._agent_url(node, path)
-        # Short connect timeout for fast retry, longer read timeout for slow ops
-        connect_t = min(AGENT_CONNECT_TIMEOUT, 5.0)
-        read_t = timeout or AGENT_HEALTH_TIMEOUT
-        total_t = (connect_t, read_t)
+        # Normalize timeout: accept float, int, tuple, or None
+        if timeout is None:
+            total_t = (min(AGENT_CONNECT_TIMEOUT, 5.0), AGENT_HEALTH_TIMEOUT)
+        elif isinstance(timeout, tuple):
+            total_t = timeout
+        else:
+            total_t = (min(AGENT_CONNECT_TIMEOUT, 5.0), timeout)
 
         last_err = None
         for attempt in range(retries):
@@ -268,14 +271,38 @@ class TaskOrchestrator:
             logger.warning(f"Hardware fetch warning: {e}")
 
     def _poll_progress(self, test, client_node, server_node, stop_event):
+        """Poll agents for progress during a test. Reduced frequency to avoid
+        overwhelming the network when iperf3 is pushing full bandwidth."""
         start_time = time.time()
+        poll_interval = 3.0  # Poll every 3s instead of 1s
+        connect_timeout = 15.0  # Generous timeout for congested links
+        read_timeout = 5.0
+        failures = 0
+        max_failures = 5
+
         while time.time() - start_time < test.duration_sec + 5:
             if stop_event.is_set():
                 self._agent_post(client_node, "/agent/iperf3/client/stop", timeout=5)
                 break
 
-            client_metrics = self._agent_get(client_node, "/agent/metrics/current", timeout=5)
-            server_metrics = self._agent_get(server_node, "/agent/metrics/current", timeout=5)
+            # Poll with generous timeouts; failures are logged but don't abort test
+            client_metrics = self._agent_get(
+                client_node, "/agent/metrics/current",
+                timeout=(connect_timeout, read_timeout),
+            )
+            server_metrics = self._agent_get(
+                server_node, "/agent/metrics/current",
+                timeout=(connect_timeout, read_timeout),
+            )
+
+            if client_metrics and client_metrics.get("error"):
+                failures += 1
+                if failures <= max_failures:
+                    logger.warning(f"[{client_node.name}] metrics/current: {client_metrics['error']}")
+            if server_metrics and server_metrics.get("error"):
+                failures += 1
+                if failures <= max_failures:
+                    logger.warning(f"[{server_node.name}] metrics/current: {server_metrics['error']}")
 
             cm = client_metrics if client_metrics and not client_metrics.get("error") else {}
             sm = server_metrics if server_metrics and not server_metrics.get("error") else {}
@@ -301,7 +328,7 @@ class TaskOrchestrator:
                 },
             }
             sse_manager.publish(test.id, data)
-            time.sleep(AGENT_POLL_INTERVAL)
+            time.sleep(poll_interval)
 
     def _save_iperf_result(self, test, node, role, raw_json):
         try:

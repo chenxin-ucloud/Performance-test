@@ -167,6 +167,9 @@ async function onStartTest(e) {
         document.getElementById('startTestBtn').disabled = true;
         document.getElementById('stopTestBtn').disabled = false;
 
+        // Start local timer as fallback when SSE is unstable during heavy traffic
+        startLocalTimer();
+
         // Connect SSE
         eventSource = connectStream(currentTestId, onStreamMessage, onStreamError);
     } catch (e) {
@@ -241,7 +244,28 @@ function onStreamError(e) {
     finishTest('failed');
 }
 
+// ===== Local timer (fallback when SSE is unstable during heavy traffic) =====
+let localTimerInterval = null;
+
+function startLocalTimer() {
+    stopLocalTimer();
+    localTimerInterval = setInterval(() => {
+        if (testStartTime) {
+            const elapsedSec = Math.floor((Date.now() - testStartTime) / 1000);
+            document.getElementById('timer').textContent = formatDuration(elapsedSec);
+        }
+    }, 1000);
+}
+
+function stopLocalTimer() {
+    if (localTimerInterval) {
+        clearInterval(localTimerInterval);
+        localTimerInterval = null;
+    }
+}
+
 async function finishTest(status, errorMsg) {
+    stopLocalTimer();
     if (eventSource) {
         eventSource.close();
         eventSource = null;
