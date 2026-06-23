@@ -89,7 +89,7 @@ async function onAddNode(e) {
     const data = {
         name: document.getElementById('nodeName').value,
         host: document.getElementById('nodeHost').value,
-        agent_port: parseInt(document.getElementById('nodePort').value) || 5001,
+        agent_port: parseInt(document.getElementById('nodePort').value) || 5002,
         description: document.getElementById('nodeDesc').value,
     };
     try {
@@ -187,7 +187,8 @@ async function onStopTest() {
 function onStreamMessage(data) {
     if (data.type === 'status') {
         if (data.status === 'completed' || data.status === 'interrupted' || data.status === 'failed') {
-            finishTest(data.status);
+            const msg = data.error ? ('失败: ' + data.error) : (data.message || '');
+            finishTest(data.status, msg);
         } else {
             updateStatus(data.status, data.message || '运行中...');
         }
@@ -240,7 +241,7 @@ function onStreamError(e) {
     finishTest('failed');
 }
 
-async function finishTest(status) {
+async function finishTest(status, errorMsg) {
     if (eventSource) {
         eventSource.close();
         eventSource = null;
@@ -248,14 +249,16 @@ async function finishTest(status) {
     currentTestId = null;
     testStartTime = null;
 
-    updateStatus(status, status === 'completed' ? '测试完成' : (status === 'interrupted' ? '测试中断' : '测试失败'));
+    let msg;
+    if (status === 'completed') msg = '测试完成';
+    else if (status === 'interrupted') msg = '测试中断';
+    else msg = '测试失败' + (errorMsg ? ': ' + errorMsg : '');
+    updateStatus(status, msg);
+
     document.getElementById('startTestBtn').disabled = false;
     document.getElementById('stopTestBtn').disabled = true;
     document.getElementById('timer').textContent = '';
 
-    // Load results for the finished test
-    // We don't know the exact test ID here easily without restructuring,
-    // so just refresh history and let user click to view details.
     setTimeout(loadHistory, 500);
 }
 

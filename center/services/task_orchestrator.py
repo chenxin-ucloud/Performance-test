@@ -8,7 +8,7 @@ import requests
 from models import db, TestRun, IperfResult, CpsResult, HardwareSnapshot
 from services.sse_manager import sse_manager
 from utils.iperf3_parser import parse_iperf3_json, extract_summary_metrics
-from config import AGENT_HEALTH_TIMEOUT, DEFAULT_IPERF3_PORT, AGENT_POLL_INTERVAL
+from config import AGENT_HEALTH_TIMEOUT, AGENT_CONNECT_TIMEOUT, DEFAULT_IPERF3_PORT, AGENT_POLL_INTERVAL
 
 
 class TaskOrchestrator:
@@ -53,22 +53,27 @@ class TaskOrchestrator:
         """Build agent URL for a node."""
         return f"http://{node.host}:{node.agent_port}{path}"
 
-    def _agent_post(self, node, path, json_data=None, timeout=AGENT_HEALTH_TIMEOUT):
+    def _agent_post(self, node, path, json_data=None, timeout=None):
         """POST to an agent. Returns response JSON or None on failure."""
         try:
             url = self._agent_url(node, path)
-            resp = requests.post(url, json=json_data or {}, timeout=timeout)
+            resp = requests.post(
+                url, json=json_data or {},
+                timeout=(AGENT_CONNECT_TIMEOUT, timeout or AGENT_HEALTH_TIMEOUT),
+            )
             if resp.status_code == 200:
                 return resp.json()
             return {"error": f"HTTP {resp.status_code}", "detail": resp.text}
         except requests.RequestException as e:
             return {"error": str(e)}
 
-    def _agent_get(self, node, path, timeout=AGENT_HEALTH_TIMEOUT):
+    def _agent_get(self, node, path, timeout=None):
         """GET from an agent. Returns response JSON or None on failure."""
         try:
             url = self._agent_url(node, path)
-            resp = requests.get(url, timeout=timeout)
+            resp = requests.get(
+                url, timeout=(AGENT_CONNECT_TIMEOUT, timeout or AGENT_HEALTH_TIMEOUT),
+            )
             if resp.status_code == 200:
                 return resp.json()
             return {"error": f"HTTP {resp.status_code}", "detail": resp.text}

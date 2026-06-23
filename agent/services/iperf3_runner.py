@@ -30,6 +30,10 @@ class Iperf3Runner:
                 # Process exists but port not open, kill and restart
                 self._kill_server()
 
+            # Kill any stale iperf3 server processes that may be holding the port
+            # (e.g. from a previous agent crash where stdout pipe blocked)
+            self._kill_stale_iperf3_servers(port)
+
             self._server_port = port
             cmd = ["iperf3", "-s", "-p", str(port), "-J"]
             self._server_proc = subprocess.Popen(
@@ -40,6 +44,9 @@ class Iperf3Runner:
 
         # Wait up to 3 seconds for the port to actually open
         for _ in range(30):
+            if self._server_proc.poll() is not None:
+                # Process exited prematurely - bind failed
+                break
             if self._check_port(port):
                 return {"status": "started", "pid": self._server_proc.pid, "port": port}
             time.sleep(0.1)
@@ -47,6 +54,26 @@ class Iperf3Runner:
         # Port never opened - server failed to start
         self._kill_server()
         return {"status": "error", "error": f"iperf3 server failed to bind port {port}"}
+
+    @staticmethod
+    def _kill_stale_iperf3_servers(port=5201):
+        """Kill any iperf3 server processes holding the port (from previous crashes)."""
+        try:
+            # Find PIDs of iperf3 server processes on this port
+            result = subprocess.run(
+                ["pgrep", "-f", f"iperf3.*-s.*-p.*{port}"],
+                capture_output=True, text=True, timeout=2,
+            )
+            pids = [p.strip() for p in result.stdout.split() if p.strip()]
+            for pid in pids:
+                try:
+                    os.kill(int(pid), 9)
+                except (ProcessLookupError, ValueError):
+                    pass
+            if pids:
+                time.sleep(0.3)  # let the port release
+        except Exception:
+            pass
 
     def stop_server(self):
         """Stop the iperf3 server."""

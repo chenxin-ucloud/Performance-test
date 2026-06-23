@@ -15,11 +15,12 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 
 # Center server
 CENTER_HOST = os.environ.get("CENTER_HOST", "0.0.0.0")
-CENTER_PORT = int(os.environ.get("CENTER_PORT", 5001))
+CENTER_PORT = int(os.environ.get("CENTER_PORT", 5002))
 
 # Agent polling
 AGENT_POLL_INTERVAL = float(os.environ.get("AGENT_POLL_INTERVAL", "1.0"))
-AGENT_HEALTH_TIMEOUT = int(os.environ.get("AGENT_HEALTH_TIMEOUT", "5"))
+AGENT_HEALTH_TIMEOUT = int(os.environ.get("AGENT_HEALTH_TIMEOUT", "10"))
+AGENT_CONNECT_TIMEOUT = float(os.environ.get("AGENT_CONNECT_TIMEOUT", "10"))
 AGENT_OFFLINE_THRESHOLD = int(os.environ.get("AGENT_OFFLINE_THRESHOLD", "30"))
 
 # Test defaults
