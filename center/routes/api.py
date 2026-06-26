@@ -1,5 +1,6 @@
 """Center REST API routes and SSE endpoint."""
 import json
+import statistics
 import threading
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response, render_template
@@ -10,6 +11,28 @@ from services.sse_manager import sse_manager
 from utils.formatters import format_bits, format_pps, format_cps, format_percent
 
 api_bp = Blueprint("api", __name__)
+
+
+def _summarize_hardware_pps(test_id):
+    """Aggregate NIC PPS samples across both nodes for a finished test.
+
+    Returns (avg_pps, peak_pps) measured in raw packets/sec, or (None, None)
+    when no hardware snapshots with PPS data exist. We take the max of client
+    tx_pps and server rx_pps per snapshot — matching how the live dashboard
+    computes PPS — then average / max across the test.
+    """
+    snaps = HardwareSnapshot.query.filter_by(test_id=test_id).all()
+    pps_samples = []
+    for s in snaps:
+        # tx from client side, rx from server side; take the larger
+        vals = [v for v in (s.network_tx_pps, s.network_rx_pps) if v is not None]
+        if vals:
+            pps_samples.append(max(vals))
+    if not pps_samples:
+        return None, None
+    avg = sum(pps_samples) / len(pps_samples)
+    peak = max(pps_samples)
+    return avg, peak
 
 
 # ==================== Page Routes ====================
@@ -100,14 +123,23 @@ def list_tests():
 
         if iperf_results:
             bws = [r.summary_bits_per_sec for r in iperf_results if r.summary_bits_per_sec]
-            pps_vals = [r.avg_pps for r in iperf_results if r.avg_pps]
+            # Prefer hardware NIC PPS (driver-level, accurate for SR-IOV) over
+            # iperf3 avg_pps (which is 0 for TCP tests — iperf3 doesn't report
+            # packet counts for TCP, only for UDP).
+            avg_pps, peak_pps = _summarize_hardware_pps(test.id)
             item["avg_bw_mbps"] = round(sum(bws) / len(bws) / 1e6, 2) if bws else None
             item["peak_bw_mbps"] = round(max(bws) / 1e6, 2) if bws else None
-            item["avg_pps_kpps"] = round(sum(pps_vals) / len(pps_vals) / 1000, 2) if pps_vals else None
+            if avg_pps is None:
+                # Fallback to iperf3 avg_pps (UDP only)
+                pps_vals = [r.avg_pps for r in iperf_results if r.avg_pps]
+                avg_pps = sum(pps_vals) / len(pps_vals) if pps_vals else None
+            item["avg_pps_kpps"] = round(avg_pps / 1000, 2) if avg_pps else None
+            item["peak_pps_kpps"] = round(peak_pps / 1000, 2) if peak_pps else None
         else:
             item["avg_bw_mbps"] = None
             item["peak_bw_mbps"] = None
             item["avg_pps_kpps"] = None
+            item["peak_pps_kpps"] = None
 
         if cps_results:
             cps_vals = [r.cps for r in cps_results if r.cps]
@@ -197,10 +229,33 @@ def get_results(test_id):
     test = TestRun.query.get_or_404(test_id)
     iperf_results = IperfResult.query.filter_by(test_id=test_id).all()
     dperf_results = DperfResult.query.filter_by(test_id=test_id).all()
+    cps_results = CpsResult.query.filter_by(test_id=test_id).all()
+
+    # Aggregated summaries for the dashboard cards
+    avg_pps, peak_pps = _summarize_hardware_pps(test_id)
+    pps_summary = {
+        "avg_pps": round(avg_pps, 0) if avg_pps is not None else None,
+        "peak_pps": round(peak_pps, 0) if peak_pps is not None else None,
+        "avg_pps_kpps": round(avg_pps / 1000, 2) if avg_pps is not None else None,
+        "peak_pps_kpps": round(peak_pps / 1000, 2) if peak_pps is not None else None,
+    }
+
+    cps_summary = None
+    if cps_results:
+        cps_vals = [r.cps for r in cps_results if r.cps]
+        cps_summary = {
+            "cps": round(sum(cps_vals) / len(cps_vals), 0) if cps_vals else None,
+            "conns_attempted": sum(r.connections_attempted or 0 for r in cps_results),
+            "conns_succeeded": sum(r.connections_succeeded or 0 for r in cps_results),
+        }
+
     return jsonify({
         "test": test.to_dict(),
         "iperf_results": [r.to_dict() for r in iperf_results],
         "dperf_results": [r.to_dict() for r in dperf_results],
+        "cps_results": [r.to_dict() for r in cps_results],
+        "pps_summary": pps_summary,
+        "cps_summary": cps_summary,
     })
 
 

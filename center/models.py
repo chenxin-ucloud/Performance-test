@@ -250,6 +250,11 @@ class HardwareSnapshot(db.Model):
     memory_total_mb = db.Column(db.Float, nullable=True)
     network_rx_mb = db.Column(db.Float, nullable=True)
     network_tx_mb = db.Column(db.Float, nullable=True)
+    # Driver-level NIC rates (bps / pps), captured by the agent's NetworkStats
+    network_tx_mbps = db.Column(db.Float, nullable=True)
+    network_rx_mbps = db.Column(db.Float, nullable=True)
+    network_tx_pps = db.Column(db.Float, nullable=True)
+    network_rx_pps = db.Column(db.Float, nullable=True)
 
     # Relationships
     test = db.relationship("TestRun", back_populates="hardware_snapshots")
@@ -269,4 +274,8 @@ class HardwareSnapshot(db.Model):
             "memory_total_mb": self.memory_total_mb,
             "network_rx_mb": self.network_rx_mb,
             "network_tx_mb": self.network_tx_mb,
+            "network_tx_mbps": self.network_tx_mbps,
+            "network_rx_mbps": self.network_rx_mbps,
+            "network_tx_pps": self.network_tx_pps,
+            "network_rx_pps": self.network_rx_pps,
         }

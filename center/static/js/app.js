@@ -290,25 +290,39 @@ async function finishTest(status, errorMsg) {
             const results = await getResults(finishedTestId);
             const iperf = results.iperf_results || [];
             const cps = results.cps_results || [];
+            const ppsSummary = results.pps_summary || {};
+            const cpsSummary = results.cps_summary || null;
 
             if (iperf.length > 0) {
                 const bws = iperf.map(r => r.summary_bits_per_sec).filter(v => v);
-                const ppsVals = iperf.map(r => r.avg_pps).filter(v => v);
                 const avgBw = bws.length ? (bws.reduce((a, b) => a + b, 0) / bws.length / 1e6) : 0;
                 const peakBw = bws.length ? Math.max(...bws) / 1e6 : 0;
-                const avgPps = ppsVals.length ? (ppsVals.reduce((a, b) => a + b, 0) / ppsVals.length / 1000) : 0;
 
                 document.getElementById('bwValue').textContent = avgBw.toFixed(2) + ' Mbps';
                 document.getElementById('bwPeak').textContent = '峰值: ' + peakBw.toFixed(2) + ' Mbps';
+
+                // Prefer hardware-derived PPS (accurate for TCP); fall back to
+                // iperf3 avg_pps (only populated for UDP) when no NIC PPS data.
+                const avgPps = ppsSummary.avg_pps_kpps != null
+                    ? ppsSummary.avg_pps_kpps
+                    : (iperf.map(r => r.avg_pps).filter(v => v).reduce((a, b) => a + b, 0) / 1e3 || 0);
+                const peakPps = ppsSummary.peak_pps_kpps != null
+                    ? ppsSummary.peak_pps_kpps
+                    : 0;
                 document.getElementById('ppsValue').textContent = avgPps.toFixed(2) + ' Kpps';
-                document.getElementById('ppsPeak').textContent = '峰值: ' + (peakPps / 1000).toFixed(2) + ' Kpps';
+                document.getElementById('ppsPeak').textContent = '峰值: ' + peakPps.toFixed(2) + ' Kpps';
             }
 
-            if (cps.length > 0) {
+            // CPS + concurrent connections from the dedicated CPS measurement
+            if (cpsSummary) {
+                document.getElementById('cpsValue').textContent =
+                    (cpsSummary.cps != null ? cpsSummary.cps : 0).toFixed(0) + ' cps';
+                document.getElementById('connValue').textContent =
+                    (cpsSummary.conns_succeeded || 0).toLocaleString();
+            } else if (cps.length > 0) {
                 const cpsVals = cps.map(r => r.cps).filter(v => v);
                 const avgCps = cpsVals.length ? (cpsVals.reduce((a, b) => a + b, 0) / cpsVals.length) : 0;
                 const conns = cps.reduce((sum, r) => sum + (r.connections_succeeded || 0), 0);
-
                 document.getElementById('cpsValue').textContent = avgCps.toFixed(0) + ' cps';
                 document.getElementById('connValue').textContent = conns.toLocaleString();
             }
@@ -341,6 +355,7 @@ function renderHistory(tests) {
         const peakBwDisplay = t.peak_bw_mbps != null ? t.peak_bw_mbps.toFixed(2) + ' Mbps' : '-';
         const ppsDisplay = t.avg_pps_kpps != null ? t.avg_pps_kpps.toFixed(2) + ' Kpps' : '-';
         const cpsDisplay = t.cps != null ? t.cps.toFixed(0) + ' cps' : '-';
+        const connDisplay = t.conns_succeeded != null ? t.conns_succeeded.toLocaleString() : '-';
         return `
         <tr onclick="showTestDetail(${t.id})" style="cursor:pointer">
             <td>${t.id}</td>
@@ -353,6 +368,7 @@ function renderHistory(tests) {
             <td>${peakBwDisplay}</td>
             <td>${ppsDisplay}</td>
             <td>${cpsDisplay}</td>
+            <td>${connDisplay}</td>
             <td class="${statusClass}">${t.status}</td>
             <td>${formatDate(t.started_at)}</td>
             <td>

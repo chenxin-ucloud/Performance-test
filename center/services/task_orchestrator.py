@@ -362,13 +362,26 @@ class TaskOrchestrator:
             "target_host": target_host,
             "target_port": srv_port,
             "duration": 5,
-        }, timeout=10)
+        }, timeout=25)
         if cps_result and not cps_result.get("error"):
             self._save_cps_result(test, client, server, cps_result)
 
     def _cleanup(self, test, client, server):
-        """Cleanup resources on both nodes."""
+        """Cleanup resources on both nodes.
+
+        IMPORTANT: fetch hardware snapshots from each agent BEFORE stopping
+        metrics collection — the agent's metrics/stop clears its in-memory
+        snapshot buffer, so fetching after would always return an empty list.
+        """
         logger.info(f"Cleaning up test {test.id}")
+
+        # Fetch hardware snapshots first (while the buffer still exists on the agent)
+        try:
+            self._fetch_hardware_snapshots(test, client)
+            self._fetch_hardware_snapshots(test, server)
+        except Exception as e:
+            logger.warning(f"Hardware fetch warning: {e}")
+
         try:
             self._agent_post(server, "/agent/iperf3/server/stop", timeout=5)
             self._agent_post(client, "/agent/iperf3/server/stop", timeout=5)
@@ -378,13 +391,6 @@ class TaskOrchestrator:
             self._agent_post(server, "/agent/metrics/stop", {"test_id": test.id}, timeout=5)
         except Exception as e:
             logger.warning(f"Cleanup warning: {e}")
-
-        # Fetch hardware snapshots even if test failed
-        try:
-            self._fetch_hardware_snapshots(test, client)
-            self._fetch_hardware_snapshots(test, server)
-        except Exception as e:
-            logger.warning(f"Hardware fetch warning: {e}")
 
     def _poll_progress(self, test, client_node, server_node, stop_event):
         """Poll agents for progress during a test. Reduced frequency to avoid
@@ -504,6 +510,10 @@ class TaskOrchestrator:
                     memory_total_mb=snap.get("memory_total_mb"),
                     network_rx_mb=snap.get("network_rx_mb"),
                     network_tx_mb=snap.get("network_tx_mb"),
+                    network_tx_mbps=snap.get("network_tx_mbps"),
+                    network_rx_mbps=snap.get("network_rx_mbps"),
+                    network_tx_pps=snap.get("network_tx_pps"),
+                    network_rx_pps=snap.get("network_rx_pps"),
                 )
                 db.session.add(hs)
             db.session.commit()

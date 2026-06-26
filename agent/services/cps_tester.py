@@ -40,6 +40,17 @@ class CpsTester:
         with self._lock:
             return self._result
 
+    def wait(self, timeout=None):
+        """Block until the running CPS test completes and return its result.
+
+        Used by the route handler to return the result synchronously in the
+        same HTTP response, avoiding the previous 504 race where the polling
+        loop expired at exactly the test duration.
+        """
+        if self._thread:
+            self._thread.join(timeout=timeout)
+        return self.get_result()
+
     def _run(self, target_host, target_port, duration):
         """Run the CPS measurement."""
         succeeded = 0

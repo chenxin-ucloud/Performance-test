@@ -128,18 +128,19 @@ def dperf_concurrent():
 @agent_api_bp.route("/cps/start", methods=["POST"])
 def cps_start():
     data = request.get_json() or {}
+    duration = data.get("duration", 5)
     cps_tester.start(
         target_host=data.get("target_host"),
         target_port=data.get("target_port", 5201),
-        duration=data.get("duration", 5),
+        duration=duration,
     )
-    import time
-    for _ in range(50):
-        result = cps_tester.get_result()
-        if result:
-            return jsonify(result)
-        time.sleep(0.1)
-    return jsonify({"status": "timeout"}), 504
+    # Block until the CPS test completes so the result is returned in the
+    # same HTTP response. Allow generous slack over the test duration so we
+    # do not time out while worker threads are still finishing connections.
+    result = cps_tester.wait(timeout=duration + 15)
+    if result:
+        return jsonify(result)
+    return jsonify({"error": "CPS test did not complete in time"}), 504
 
 
 @agent_api_bp.route("/cps/stop", methods=["POST"])
