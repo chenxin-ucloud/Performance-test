@@ -90,8 +90,39 @@ def list_tests():
     pagination = q.order_by(TestRun.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
+
+    items = []
+    for test in pagination.items:
+        item = test.to_dict()
+        # Summarize results
+        iperf_results = IperfResult.query.filter_by(test_id=test.id).all()
+        cps_results = CpsResult.query.filter_by(test_id=test.id).all()
+
+        if iperf_results:
+            bws = [r.summary_bits_per_sec for r in iperf_results if r.summary_bits_per_sec]
+            pps_vals = [r.avg_pps for r in iperf_results if r.avg_pps]
+            item["avg_bw_mbps"] = round(sum(bws) / len(bws) / 1e6, 2) if bws else None
+            item["peak_bw_mbps"] = round(max(bws) / 1e6, 2) if bws else None
+            item["avg_pps_kpps"] = round(sum(pps_vals) / len(pps_vals) / 1000, 2) if pps_vals else None
+        else:
+            item["avg_bw_mbps"] = None
+            item["peak_bw_mbps"] = None
+            item["avg_pps_kpps"] = None
+
+        if cps_results:
+            cps_vals = [r.cps for r in cps_results if r.cps]
+            item["cps"] = round(sum(cps_vals) / len(cps_vals), 0) if cps_vals else None
+            item["conns_attempted"] = sum(r.connections_attempted or 0 for r in cps_results)
+            item["conns_succeeded"] = sum(r.connections_succeeded or 0 for r in cps_results)
+        else:
+            item["cps"] = None
+            item["conns_attempted"] = None
+            item["conns_succeeded"] = None
+
+        items.append(item)
+
     return jsonify({
-        "items": [t.to_dict() for t in pagination.items],
+        "items": items,
         "total": pagination.total,
         "page": pagination.page,
         "per_page": pagination.per_page,

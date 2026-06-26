@@ -270,6 +270,7 @@ async function finishTest(status, errorMsg) {
         eventSource.close();
         eventSource = null;
     }
+    const finishedTestId = currentTestId;
     currentTestId = null;
     testStartTime = null;
 
@@ -282,6 +283,39 @@ async function finishTest(status, errorMsg) {
     document.getElementById('startTestBtn').disabled = false;
     document.getElementById('stopTestBtn').disabled = true;
     document.getElementById('timer').textContent = '';
+
+    // Fetch final results and update metric cards
+    if (finishedTestId && status === 'completed') {
+        try {
+            const results = await getResults(finishedTestId);
+            const iperf = results.iperf_results || [];
+            const cps = results.cps_results || [];
+
+            if (iperf.length > 0) {
+                const bws = iperf.map(r => r.summary_bits_per_sec).filter(v => v);
+                const ppsVals = iperf.map(r => r.avg_pps).filter(v => v);
+                const avgBw = bws.length ? (bws.reduce((a, b) => a + b, 0) / bws.length / 1e6) : 0;
+                const peakBw = bws.length ? Math.max(...bws) / 1e6 : 0;
+                const avgPps = ppsVals.length ? (ppsVals.reduce((a, b) => a + b, 0) / ppsVals.length / 1000) : 0;
+
+                document.getElementById('bwValue').textContent = avgBw.toFixed(2) + ' Mbps';
+                document.getElementById('bwPeak').textContent = '峰值: ' + peakBw.toFixed(2) + ' Mbps';
+                document.getElementById('ppsValue').textContent = avgPps.toFixed(2) + ' Kpps';
+                document.getElementById('ppsPeak').textContent = '峰值: ' + (peakPps / 1000).toFixed(2) + ' Kpps';
+            }
+
+            if (cps.length > 0) {
+                const cpsVals = cps.map(r => r.cps).filter(v => v);
+                const avgCps = cpsVals.length ? (cpsVals.reduce((a, b) => a + b, 0) / cpsVals.length) : 0;
+                const conns = cps.reduce((sum, r) => sum + (r.connections_succeeded || 0), 0);
+
+                document.getElementById('cpsValue').textContent = avgCps.toFixed(0) + ' cps';
+                document.getElementById('connValue').textContent = conns.toLocaleString();
+            }
+        } catch (e) {
+            console.error('Failed to load final results:', e);
+        }
+    }
 
     setTimeout(loadHistory, 500);
 }
@@ -303,6 +337,10 @@ function renderHistory(tests) {
         const clientName = t.client_node ? t.client_node.name : '?';
         const serverName = t.server_node ? t.server_node.name : '?';
         const statusClass = `status-${t.status}`;
+        const bwDisplay = t.avg_bw_mbps != null ? t.avg_bw_mbps.toFixed(2) + ' Mbps' : '-';
+        const peakBwDisplay = t.peak_bw_mbps != null ? t.peak_bw_mbps.toFixed(2) + ' Mbps' : '-';
+        const ppsDisplay = t.avg_pps_kpps != null ? t.avg_pps_kpps.toFixed(2) + ' Kpps' : '-';
+        const cpsDisplay = t.cps != null ? t.cps.toFixed(0) + ' cps' : '-';
         return `
         <tr onclick="showTestDetail(${t.id})" style="cursor:pointer">
             <td>${t.id}</td>
@@ -311,9 +349,10 @@ function renderHistory(tests) {
             <td>${t.test_type.toUpperCase()}</td>
             <td>${t.duration_sec}s</td>
             <td>${t.parallel_streams}</td>
-            <td>-</td>
-            <td>-</td>
-            <td>-</td>
+            <td>${bwDisplay}</td>
+            <td>${peakBwDisplay}</td>
+            <td>${ppsDisplay}</td>
+            <td>${cpsDisplay}</td>
             <td class="${statusClass}">${t.status}</td>
             <td>${formatDate(t.started_at)}</td>
             <td>
@@ -346,7 +385,8 @@ async function showTestDetail(testId) {
         ]);
 
         const test = testData;
-        const results = resultsData.results || [];
+        const iperfResults = resultsData.iperf_results || [];
+        const dperfResults = resultsData.dperf_results || [];
         const cps = cpsData || [];
 
         let html = `<div class="detail-section">`;
@@ -356,11 +396,11 @@ async function showTestDetail(testId) {
         html += `<p><strong>状态:</strong> <span class="status-${test.status}">${test.status}</span></p>`;
 
         // Iperf results
-        if (results.length > 0) {
+        if (iperfResults.length > 0) {
             html += `<h4>Iperf3 结果</h4>`;
             html += `<table class="detail-table">`;
             html += `<tr><th>节点</th><th>角色</th><th>带宽</th><th>字节</th><th>包数</th><th>PPS</th><th>重传</th></tr>`;
-            for (const r of results) {
+            for (const r of iperfResults) {
                 html += `<tr>
                     <td>${escapeHtml(r.node_name || '?')}</td>
                     <td>${r.role}</td>
@@ -375,10 +415,28 @@ async function showTestDetail(testId) {
 
             // Raw JSON download links
             html += `<div class="detail-actions">`;
-            for (const r of results) {
+            for (const r of iperfResults) {
                 html += `<a class="btn-small" href="/api/tests/${testId}/results/${r.id}/raw" target="_blank">下载 ${escapeHtml(r.node_name || '?')} JSON</a> `;
             }
             html += `</div>`;
+        }
+
+        // dperf results
+        if (dperfResults.length > 0) {
+            html += `<h4>dperf 结果</h4>`;
+            html += `<table class="detail-table">`;
+            html += `<tr><th>节点</th><th>类型</th><th>发送包</th><th>发送字节</th><th>CPS</th><th>并发数</th></tr>`;
+            for (const r of dperfResults) {
+                html += `<tr>
+                    <td>${escapeHtml(r.node_name || '?')}</td>
+                    <td>${r.dperf_type}</td>
+                    <td>${r.snd_packets || '-'}</td>
+                    <td>${formatBytes(r.snd_bytes)}</td>
+                    <td>${r.cps != null ? r.cps.toFixed(0) : '-'}</td>
+                    <td>${r.concurrent != null ? r.concurrent : '-'}</td>
+                </tr>`;
+            }
+            html += `</table>`;
         }
 
         // CPS results
@@ -398,10 +456,10 @@ async function showTestDetail(testId) {
             html += `</table>`;
         }
 
-        // Hardware snapshots chart (placeholder: we could render a chart from hwData)
-        if (hwData.length > 0) {
-            html += `<h4>硬件指标</h4>`;
-            html += `<p>共采集 ${hwData.length} 个样本</p>`;
+        // Concurrent connections from iperf_results streams
+        if (test.parallel_streams > 1) {
+            html += `<h4>并发连接</h4>`;
+            html += `<p>并行流数: ${test.parallel_streams}</p>`;
         }
 
         html += `</div>`;
