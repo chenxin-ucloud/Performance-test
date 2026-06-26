@@ -1,21 +1,209 @@
-"""Collect local hardware metrics via psutil on the agent node."""
+"""Collect local hardware metrics via psutil + ethtool + sysfs on the agent node.
+
+SR-IOV environments: psutil reads /proc/net/dev (kernel stack), which misses
+SR-IOV bypass traffic. We fall back to ethtool -S (NIC driver stats) or sysfs
+/sys/class/net/<iface>/statistics/ (driver-maintained counters).
+"""
+import os
+import subprocess
 import threading
 import time
 from datetime import datetime
+from typing import Dict, List, Optional
 
 import psutil
 
 from config import METRICS_INTERVAL, METRICS_MAX_SNAPSHOTS
 
 
+class NetworkStats:
+    """Read network counters from multiple sources."""
+
+    # Driver-specific stat names from ethtool -S
+    STAT_NAME_MAP = {
+        # Mellanox ConnectX
+        "tx_bytes_phy": "tx_bytes",
+        "rx_bytes_phy": "rx_bytes",
+        "tx_packets_phy": "tx_packets",
+        "rx_packets_phy": "rx_packets",
+        "tx_bytes": "tx_bytes",
+        "rx_bytes": "rx_bytes",
+        "tx_packets": "tx_packets",
+        "rx_packets": "rx_packets",
+        # Intel ixgbe/i40e
+        "tx_bytes": "tx_bytes",
+        "rx_bytes": "rx_bytes",
+        "tx_packets": "tx_packets",
+        "rx_packets": "rx_packets",
+        "tx_packets_phy": "tx_packets",
+        "rx_packets_phy": "rx_packets",
+    }
+
+    def __init__(self):
+        self._last: Optional[Dict[str, int]] = None
+        self._last_time: float = 0.0
+        self._iface: Optional[str] = None
+        self._method: str = "unknown"
+
+    @property
+    def iface(self) -> str:
+        """Auto-detect primary interface if not set."""
+        if self._iface is not None:
+            return self._iface
+        # Prefer non-loopback, non-docker interfaces with traffic
+        best = None
+        best_score = -1
+        for name, _ in psutil.net_if_stats().items():
+            if name.startswith("lo") or name.startswith("docker") or name.startswith("br-"):
+                continue
+            # Score: longer name + digits = physical NIC
+            score = len(name)
+            if best is None or score > best_score:
+                best = name
+                best_score = score
+        self._iface = best or "eth0"
+        return self._iface
+
+    @iface.setter
+    def iface(self, name: str):
+        self._iface = name
+
+    def read(self) -> Optional[Dict[str, int]]:
+        """Read counters. Returns dict or None on failure."""
+        # Try 1: ethtool -S (most accurate for SR-IOV)
+        stats = self._read_ethtool()
+        if stats:
+            self._method = "ethtool"
+            return stats
+
+        # Try 2: sysfs /sys/class/net/<iface>/statistics/
+        stats = self._read_sysfs()
+        if stats:
+            self._method = "sysfs"
+            return stats
+
+        # Try 3: psutil (fallback, may miss SR-IOV traffic)
+        stats = self._read_psutil()
+        if stats:
+            self._method = "psutil"
+            return stats
+
+        return None
+
+    def _read_ethtool(self) -> Optional[Dict[str, int]]:
+        """Use ethtool -S to read driver-level counters (works for SR-IOV)."""
+        try:
+            result = subprocess.run(
+                ["ethtool", "-S", self.iface],
+                capture_output=True, text=True, timeout=2,
+            )
+            if result.returncode != 0:
+                return None
+            data: Dict[str, int] = {}
+            for line in result.stdout.splitlines():
+                # Parse "    stat_name: 12345"
+                parts = line.strip().rsplit(":", 1)
+                if len(parts) != 2:
+                    continue
+                key = parts[0].strip()
+                val = parts[1].strip()
+                if key in self.STAT_NAME_MAP and val.lstrip("-").isdigit():
+                    mapped = self.STAT_NAME_MAP[key]
+                    data[mapped] = data.get(mapped, 0) + int(val)
+            if "tx_bytes" in data and "rx_bytes" in data:
+                data["tx_packets"] = data.get("tx_packets", 0)
+                data["rx_packets"] = data.get("rx_packets", 0)
+                return data
+            return None
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return None
+
+    def _read_sysfs(self) -> Optional[Dict[str, int]]:
+        """Read /sys/class/net/<iface>/statistics/ counters."""
+        base = f"/sys/class/net/{self.iface}/statistics/"
+        try:
+            keys = ["tx_bytes", "rx_bytes", "tx_packets", "rx_packets"]
+            data: Dict[str, int] = {}
+            for key in keys:
+                path = os.path.join(base, key)
+                if os.path.exists(path):
+                    with open(path, "r") as f:
+                        data[key] = int(f.read().strip())
+                else:
+                    return None
+            return data
+        except (OSError, ValueError):
+            return None
+
+    def _read_psutil(self) -> Optional[Dict[str, int]]:
+        """Fallback to psutil net_io_counters."""
+        try:
+            net = psutil.net_io_counters(pernic=False)
+            return {
+                "tx_bytes": net.bytes_sent,
+                "rx_bytes": net.bytes_recv,
+                "tx_packets": net.packets_sent,
+                "rx_packets": net.packets_recv,
+            }
+        except Exception:
+            return None
+
+    def get_rates(self) -> Dict[str, float]:
+        """Calculate tx/rx rates since last call."""
+        current = self.read()
+        now = time.time()
+        if current is None:
+            return self._zero_rates()
+
+        if self._last is not None:
+            delta_t = now - self._last_time
+            if delta_t > 0:
+                tx_mbps = max(
+                    (current["tx_bytes"] - self._last["tx_bytes"]) * 8 / (1024 * 1024) / delta_t, 0
+                )
+                rx_mbps = max(
+                    (current["rx_bytes"] - self._last["rx_bytes"]) * 8 / (1024 * 1024) / delta_t, 0
+                )
+                tx_pps = max(
+                    (current["tx_packets"] - self._last["tx_packets"]) / delta_t, 0
+                )
+                rx_pps = max(
+                    (current["rx_packets"] - self._last["rx_packets"]) / delta_t, 0
+                )
+                self._last = current
+                self._last_time = now
+                return {
+                    "network_tx_mbps": round(tx_mbps, 2),
+                    "network_rx_mbps": round(rx_mbps, 2),
+                    "network_tx_pps": round(tx_pps, 0),
+                    "network_rx_pps": round(rx_pps, 0),
+                    "network_method": self._method,
+                }
+
+        self._last = current
+        self._last_time = now
+        return self._zero_rates()
+
+    @staticmethod
+    def _zero_rates() -> Dict[str, float]:
+        return {
+            "network_tx_mbps": 0.0,
+            "network_rx_mbps": 0.0,
+            "network_tx_pps": 0.0,
+            "network_rx_pps": 0.0,
+            "network_method": "none",
+        }
+
+
 class MetricsCollector:
+    """Collect CPU, memory, and NIC metrics using driver-level counters."""
+
     def __init__(self):
         self._thread = None
         self._stop_event = threading.Event()
-        self._snapshots = {}  # test_id -> list of snapshots with rates
+        self._snapshots: Dict[int, List[dict]] = {}
         self._lock = threading.Lock()
-        self._collect_last_net = None
-        self._collect_last_time = None
+        self._net_stats = NetworkStats()
 
     def start(self, test_id, interval=None):
         interval = interval or METRICS_INTERVAL
@@ -52,7 +240,6 @@ class MetricsCollector:
                         latest = snaps[-1]
             if latest:
                 return dict(latest)
-        # No active tests: return a fresh absolute-value snapshot
         return self._take_absolute_snapshot()
 
     def get_series(self, test_id):
@@ -61,7 +248,6 @@ class MetricsCollector:
         return {"snapshots": snaps}
 
     def _collect_loop(self, interval):
-        """Background loop: collect metrics with rate calculation."""
         while not self._stop_event.is_set():
             snap = self._take_snapshot_with_rates()
             with self._lock:
@@ -74,24 +260,11 @@ class MetricsCollector:
             time.sleep(interval)
 
     def _take_snapshot_with_rates(self):
-        """Capture metrics snapshot and calculate network rates."""
         cpu_percent = psutil.cpu_percent(interval=None)
         cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
         mem = psutil.virtual_memory()
         net = psutil.net_io_counters()
-        now = time.time()
-
-        tx_mbps = rx_mbps = tx_pps = rx_pps = 0.0
-        if self._collect_last_net is not None:
-            delta_t = now - self._collect_last_time
-            if delta_t > 0:
-                tx_mbps = (net.bytes_sent - self._collect_last_net.bytes_sent) * 8 / (1024 * 1024) / delta_t
-                rx_mbps = (net.bytes_recv - self._collect_last_net.bytes_recv) * 8 / (1024 * 1024) / delta_t
-                tx_pps = (net.packets_sent - self._collect_last_net.packets_sent) / delta_t
-                rx_pps = (net.packets_recv - self._collect_last_net.packets_recv) / delta_t
-
-        self._collect_last_net = net
-        self._collect_last_time = now
+        rates = self._net_stats.get_rates()
 
         return {
             "timestamp": datetime.utcnow().isoformat(),
@@ -102,14 +275,10 @@ class MetricsCollector:
             "memory_total_mb": mem.total / (1024.0 * 1024.0),
             "network_rx_mb": net.bytes_recv / (1024.0 * 1024.0),
             "network_tx_mb": net.bytes_sent / (1024.0 * 1024.0),
-            "network_tx_mbps": round(max(tx_mbps, 0), 2),
-            "network_rx_mbps": round(max(rx_mbps, 0), 2),
-            "network_tx_pps": round(max(tx_pps, 0), 0),
-            "network_rx_pps": round(max(rx_pps, 0), 0),
+            **rates,
         }
 
     def _take_absolute_snapshot(self):
-        """Fallback: return current absolute values without rate calculation."""
         cpu_percent = psutil.cpu_percent(interval=None)
         cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
         mem = psutil.virtual_memory()
@@ -124,10 +293,11 @@ class MetricsCollector:
             "memory_total_mb": mem.total / (1024.0 * 1024.0),
             "network_rx_mb": net.bytes_recv / (1024.0 * 1024.0),
             "network_tx_mb": net.bytes_sent / (1024.0 * 1024.0),
-            "network_tx_mbps": 0,
-            "network_rx_mbps": 0,
-            "network_tx_pps": 0,
-            "network_rx_pps": 0,
+            "network_tx_mbps": 0.0,
+            "network_rx_mbps": 0.0,
+            "network_tx_pps": 0.0,
+            "network_rx_pps": 0.0,
+            "network_method": "none",
         }
 
 

@@ -2,6 +2,7 @@
 from flask import Blueprint, request, jsonify
 
 from services.iperf3_runner import iperf3_runner
+from services.dperf_runner import dperf_runner
 from services.cps_tester import cps_tester
 from services.metrics_collector import metrics_collector
 from services.task_manager import task_manager
@@ -16,7 +17,21 @@ def health():
     return jsonify(task_manager.health())
 
 
-# ==================== iperf3 Server ====================
+# ==================== Test Engines ====================
+
+@agent_api_bp.route("/engines", methods=["GET"])
+def list_engines():
+    """Return available test engines and their capabilities."""
+    return jsonify({
+        "iperf3": {"available": True, "capabilities": ["bps", "bandwidth"]},
+        "dperf": {
+            "available": dperf_runner._dperf_available,
+            "capabilities": ["pps", "cps", "concurrent"],
+        },
+    })
+
+
+# ==================== iperf3 ====================
 
 @agent_api_bp.route("/iperf3/server/start", methods=["POST"])
 def iperf3_server_start():
@@ -29,8 +44,6 @@ def iperf3_server_start():
 def iperf3_server_stop():
     return jsonify(iperf3_runner.stop_server())
 
-
-# ==================== iperf3 Client ====================
 
 @agent_api_bp.route("/iperf3/client/start", methods=["POST"])
 def iperf3_client_start():
@@ -57,7 +70,60 @@ def iperf3_client_result():
     return jsonify(iperf3_runner.get_client_result())
 
 
-# ==================== CPS ====================
+# ==================== dperf ====================
+
+@agent_api_bp.route("/dperf/server/start", methods=["POST"])
+def dperf_server_start():
+    data = request.get_json() or {}
+    port = data.get("port", 80)
+    return jsonify(dperf_runner.start_server(port))
+
+
+@agent_api_bp.route("/dperf/server/stop", methods=["POST"])
+def dperf_server_stop():
+    return jsonify(dperf_runner.stop_server())
+
+
+@agent_api_bp.route("/dperf/pps", methods=["POST"])
+def dperf_pps():
+    """Run dperf PPS (packets per second) test."""
+    data = request.get_json() or {}
+    result = dperf_runner.run_pps_test(
+        target_host=data.get("target_host"),
+        target_port=data.get("target_port", 80),
+        duration=data.get("duration", 10),
+        packet_size=data.get("packet_size", 64),
+    )
+    return jsonify(result)
+
+
+@agent_api_bp.route("/dperf/cps", methods=["POST"])
+def dperf_cps():
+    """Run dperf CPS (connections per second) test."""
+    data = request.get_json() or {}
+    result = dperf_runner.run_cps_test(
+        target_host=data.get("target_host"),
+        target_port=data.get("target_port", 80),
+        duration=data.get("duration", 5),
+        rate=data.get("rate", 10000),
+    )
+    return jsonify(result)
+
+
+@agent_api_bp.route("/dperf/concurrent", methods=["POST"])
+def dperf_concurrent():
+    """Run dperf concurrent connections test."""
+    data = request.get_json() or {}
+    result = dperf_runner.run_concurrent_test(
+        target_host=data.get("target_host"),
+        target_port=data.get("target_port", 80),
+        duration=data.get("duration", 10),
+        concurrent=data.get("concurrent", 10000),
+    )
+    return jsonify(result)
+
+
+# ==================== CPS (legacy fallback) ====================
 
 @agent_api_bp.route("/cps/start", methods=["POST"])
 def cps_start():
@@ -67,9 +133,8 @@ def cps_start():
         target_port=data.get("target_port", 5201),
         duration=data.get("duration", 5),
     )
-    # Wait for completion (CPS test is short)
     import time
-    for _ in range(50):  # wait up to ~5 seconds
+    for _ in range(50):
         result = cps_tester.get_result()
         if result:
             return jsonify(result)

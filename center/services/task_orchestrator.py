@@ -119,55 +119,14 @@ class TaskOrchestrator:
         })
 
         try:
-            srv_port = DEFAULT_IPERF3_PORT
-
             # Phase 1: Start metrics collection on both nodes in parallel
             self._start_metrics_parallel(test, client, server)
 
-            # Phase 2: Start iperf3 server on server node
-            srv_start = self._agent_post(server, "/agent/iperf3/server/start", {
-                "port": srv_port
-            }, timeout=10)
-            if srv_start and srv_start.get("error"):
-                raise RuntimeError(f"Failed to start iperf3 server on {server.name}: {srv_start['error']}")
-
-            # Phase 3: Start iperf3 client on client node
-            client_params = {
-                "target_host": server.host,
-                "target_port": srv_port,
-                "duration": test.duration_sec,
-                "streams": test.parallel_streams,
-                "bandwidth": test.bandwidth_limit,
-                "reverse": test.reverse_mode,
-                "udp": test.test_type == "udp",
-            }
-            client_start = self._agent_post(client, "/agent/iperf3/client/start", client_params, timeout=10)
-            if client_start and client_start.get("error"):
-                raise RuntimeError(f"Failed to start iperf3 client on {client.name}: {client_start['error']}")
-
-            # Phase 4: Poll for progress during test
-            self._poll_progress(test, client, server, stop_event)
-
-            # Phase 5: Fetch client result
-            client_result_raw = self._agent_get(client, "/agent/iperf3/client/result", timeout=60)
-            if client_result_raw and not client_result_raw.get("error"):
-                raw_json = client_result_raw.get("raw_json", "")
-                if raw_json:
-                    self._save_iperf_result(test, client, "client", raw_json)
-                else:
-                    sse_manager.publish(test.id, {
-                        "type": "status",
-                        "status": "warning",
-                        "message": f"Client on {client.name} returned empty result"
-                    })
-
-            # Phase 6: Bidirectional if requested
-            if test.bidirectional and not stop_event.is_set():
-                self._run_bidirectional(test, client, server, srv_port, stop_event)
-
-            # Phase 7: CPS measurement if requested
-            if test.measure_cps and not stop_event.is_set():
-                self._run_cps(test, client, server, srv_port)
+            # Phase 2: Run the test based on engine
+            if test.engine == "dperf":
+                self._run_dperf_test(test, client, server, stop_event)
+            else:
+                self._run_iperf_test(test, client, server, stop_event)
 
             # Cleanup
             self._cleanup(test, client, server)
@@ -189,6 +148,152 @@ class TaskOrchestrator:
             test.completed_at = datetime.utcnow()
             db.session.commit()
             sse_manager.publish(test.id, None)
+
+    def _run_iperf_test(self, test, client, server, stop_event):
+        srv_port = DEFAULT_IPERF3_PORT
+
+        # Get server node's internal IPs for iperf3 target (avoid EIP bandwidth limit)
+        server_health = self._agent_get(server, "/agent/health", timeout=5)
+        target_host = server.host
+        if server_health and not server_health.get("error") and server_health.get("internal_ips"):
+            target_host = server_health["internal_ips"][0]
+            logger.info(f"Using internal IP {target_host} for iperf3 instead of registered host {server.host}")
+
+        srv_start = self._agent_post(server, "/agent/iperf3/server/start", {
+            "port": srv_port
+        }, timeout=10)
+        if srv_start and srv_start.get("error"):
+            raise RuntimeError(f"Failed to start iperf3 server on {server.name}: {srv_start['error']}")
+
+        client_params = {
+            "target_host": target_host,
+            "target_port": srv_port,
+            "duration": test.duration_sec,
+            "streams": test.parallel_streams,
+            "bandwidth": test.bandwidth_limit,
+            "reverse": test.reverse_mode,
+            "udp": test.test_type == "udp",
+        }
+        client_start = self._agent_post(client, "/agent/iperf3/client/start", client_params, timeout=10)
+        if client_start and client_start.get("error"):
+            raise RuntimeError(f"Failed to start iperf3 client on {client.name}: {client_start['error']}")
+
+        self._poll_progress(test, client, server, stop_event)
+
+        client_result_raw = self._agent_get(client, "/agent/iperf3/client/result", timeout=60)
+        if client_result_raw and not client_result_raw.get("error"):
+            raw_json = client_result_raw.get("raw_json", "")
+            if raw_json:
+                self._save_iperf_result(test, client, "client", raw_json)
+
+        if test.bidirectional and not stop_event.is_set():
+            self._run_bidirectional(test, client, server, srv_port, stop_event)
+
+        if test.measure_cps and not stop_event.is_set():
+            self._run_cps(test, client, server, srv_port)
+
+    def _run_dperf_test(self, test, client, server, stop_event):
+        dperf_port = 80
+
+        # Check dperf availability
+        engines = self._agent_get(server, "/agent/engines", timeout=5)
+        dperf_available = engines and engines.get("dperf", {}).get("available", False)
+        if not dperf_available:
+            raise RuntimeError(f"dperf not available on {server.name}. Install with DPERF_INSTALL=yes.")
+
+        srv_start = self._agent_post(server, "/agent/dperf/server/start", {
+            "port": dperf_port
+        }, timeout=10)
+        if srv_start and srv_start.get("error"):
+            raise RuntimeError(f"Failed to start dperf server on {server.name}: {srv_start['error']}")
+
+        time.sleep(0.5)
+
+        # Run PPS test
+        if test.measure_pps and not stop_event.is_set():
+            sse_manager.publish(test.id, {
+                "type": "status",
+                "status": "running",
+                "message": f"Running dperf PPS test: packet_size={test.packet_size}"
+            })
+            # Get server internal IPs for dperf target
+            server_health = self._agent_get(server, "/agent/health", timeout=5)
+            target_host = server.host
+            if server_health and not server_health.get("error") and server_health.get("internal_ips"):
+                target_host = server_health["internal_ips"][0]
+            pps_result = self._agent_post(client, "/agent/dperf/pps", {
+                "target_host": target_host,
+                "target_port": dperf_port,
+                "duration": test.duration_sec,
+                "packet_size": test.packet_size,
+            }, timeout=test.duration_sec + 10)
+            if pps_result and not pps_result.get("error"):
+                self._save_dperf_result(test, client, "pps", pps_result)
+            self._poll_progress(test, client, server, stop_event)
+
+        # Run CPS test
+        if test.measure_cps and not stop_event.is_set():
+            sse_manager.publish(test.id, {
+                "type": "status",
+                "status": "running",
+                "message": f"Running dperf CPS test: rate={test.cps_rate}"
+            })
+            server_health = self._agent_get(server, "/agent/health", timeout=5)
+            target_host = server.host
+            if server_health and not server_health.get("error") and server_health.get("internal_ips"):
+                target_host = server_health["internal_ips"][0]
+            cps_result = self._agent_post(client, "/agent/dperf/cps", {
+                "target_host": target_host,
+                "target_port": dperf_port,
+                "duration": 5,
+                "rate": test.cps_rate,
+            }, timeout=15)
+            if cps_result and not cps_result.get("error"):
+                self._save_dperf_result(test, client, "cps", cps_result)
+
+        # Run concurrent connections test
+        if test.measure_concurrent and not stop_event.is_set():
+            sse_manager.publish(test.id, {
+                "type": "status",
+                "status": "running",
+                "message": f"Running dperf concurrent test: count={test.concurrent_count}"
+            })
+            server_health = self._agent_get(server, "/agent/health", timeout=5)
+            target_host = server.host
+            if server_health and not server_health.get("error") and server_health.get("internal_ips"):
+                target_host = server_health["internal_ips"][0]
+            cc_result = self._agent_post(client, "/agent/dperf/concurrent", {
+                "target_host": target_host,
+                "target_port": dperf_port,
+                "duration": test.duration_sec,
+                "concurrent": test.concurrent_count,
+            }, timeout=test.duration_sec + 10)
+            if cc_result and not cc_result.get("error"):
+                self._save_dperf_result(test, client, "concurrent", cc_result)
+
+        # Stop dperf server
+        self._agent_post(server, "/agent/dperf/server/stop", timeout=5)
+
+    def _save_dperf_result(self, test, node, dperf_type, result):
+        try:
+            from models import DperfResult
+            dr = DperfResult(
+                test_id=test.id,
+                node_id=node.id,
+                role="client",
+                dperf_type=dperf_type,
+                raw_output=result.get("raw_output", "") + "\n" + result.get("raw_stderr", ""),
+                snd_packets=result.get("sndPackets"),
+                snd_bytes=result.get("snd_bytes"),
+                rcv_packets=result.get("rcvPackets"),
+                rcv_bytes=result.get("rcv_bytes"),
+                cps=result.get("cps"),
+                concurrent=result.get("concurrent"),
+            )
+            db.session.add(dr)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     def _start_metrics_parallel(self, test, client, server):
         """Start metrics collection on both nodes concurrently."""
@@ -217,10 +322,15 @@ class TaskOrchestrator:
             "status": "running",
             "message": f"Bidirectional phase: {server.name} -> {client.name}"
         })
+        # Get client internal IPs
+        client_health = self._agent_get(client, "/agent/health", timeout=5)
+        target_host = client.host
+        if client_health and not client_health.get("error") and client_health.get("internal_ips"):
+            target_host = client_health["internal_ips"][0]
         self._agent_post(client, "/agent/iperf3/server/start", {"port": srv_port}, timeout=10)
         time.sleep(0.5)
         server_params = {
-            "target_host": client.host,
+            "target_host": target_host,
             "target_port": srv_port,
             "duration": test.duration_sec,
             "streams": test.parallel_streams,
@@ -237,13 +347,19 @@ class TaskOrchestrator:
                 self._save_iperf_result(test, server, "client", raw_json)
 
     def _run_cps(self, test, client, server, srv_port):
+        # Get server internal IPs
+        server_health = self._agent_get(server, "/agent/health", timeout=5)
+        target_host = server.host
+        if server_health and not server_health.get("error") and server_health.get("internal_ips"):
+            target_host = server_health["internal_ips"][0]
+
         sse_manager.publish(test.id, {
             "type": "status",
             "status": "running",
             "message": "Running CPS measurement..."
         })
         cps_result = self._agent_post(client, "/agent/cps/start", {
-            "target_host": server.host,
+            "target_host": target_host,
             "target_port": srv_port,
             "duration": 5,
         }, timeout=10)

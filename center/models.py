@@ -22,13 +22,14 @@ class Node(db.Model):
 
     # Relationships
     client_tests = db.relationship(
-        "TestRun", foreign_keys="TestRun.client_node_id", back_populates="client_node"
+"TestRun", foreign_keys="TestRun.client_node_id", back_populates="client_node"
     )
     server_tests = db.relationship(
         "TestRun", foreign_keys="TestRun.server_node_id", back_populates="server_node"
     )
     hardware_snapshots = db.relationship("HardwareSnapshot", back_populates="node")
     iperf_results = db.relationship("IperfResult", back_populates="node")
+    dperf_results = db.relationship("DperfResult", back_populates="node")
 
     def to_dict(self):
         return {
@@ -55,12 +56,18 @@ class TestRun(db.Model):
 
     # Test configuration
     test_type = db.Column(db.String(16), default="tcp")  # tcp, udp
+    engine = db.Column(db.String(16), default="iperf3")  # iperf3, dperf
     duration_sec = db.Column(db.Integer, default=10)
     parallel_streams = db.Column(db.Integer, default=1)
     bandwidth_limit = db.Column(db.String(32), nullable=True)
     reverse_mode = db.Column(db.Boolean, default=False)
     bidirectional = db.Column(db.Boolean, default=False)
     measure_cps = db.Column(db.Boolean, default=False)
+    measure_pps = db.Column(db.Boolean, default=False)
+    measure_concurrent = db.Column(db.Boolean, default=False)
+    packet_size = db.Column(db.Integer, default=64)  # for dperf PPS
+    cps_rate = db.Column(db.Integer, default=10000)  # for dperf CPS
+    concurrent_count = db.Column(db.Integer, default=10000)  # for dperf concurrent
 
     # Status tracking
     status = db.Column(db.String(32), default="pending")
@@ -72,6 +79,7 @@ class TestRun(db.Model):
     client_node = db.relationship("Node", foreign_keys=[client_node_id], back_populates="client_tests")
     server_node = db.relationship("Node", foreign_keys=[server_node_id], back_populates="server_tests")
     iperf_results = db.relationship("IperfResult", back_populates="test", cascade="all, delete-orphan")
+    dperf_results = db.relationship("DperfResult", back_populates="test", cascade="all, delete-orphan")
     cps_results = db.relationship("CpsResult", back_populates="test", cascade="all, delete-orphan")
     hardware_snapshots = db.relationship("HardwareSnapshot", back_populates="test", cascade="all, delete-orphan")
 
@@ -84,12 +92,18 @@ class TestRun(db.Model):
             "client_node": self.client_node.to_dict() if self.client_node else None,
             "server_node": self.server_node.to_dict() if self.server_node else None,
             "test_type": self.test_type,
+            "engine": self.engine,
             "duration_sec": self.duration_sec,
             "parallel_streams": self.parallel_streams,
             "bandwidth_limit": self.bandwidth_limit,
             "reverse_mode": self.reverse_mode,
             "bidirectional": self.bidirectional,
             "measure_cps": self.measure_cps,
+            "measure_pps": self.measure_pps,
+            "measure_concurrent": self.measure_concurrent,
+            "packet_size": self.packet_size,
+            "cps_rate": self.cps_rate,
+            "concurrent_count": self.concurrent_count,
             "status": self.status,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
@@ -135,6 +149,50 @@ class IperfResult(db.Model):
             "jitter_ms": self.jitter_ms,
             "lost_packets": self.lost_packets,
             "lost_percent": self.lost_percent,
+        }
+
+
+class DperfResult(db.Model):
+    """dperf results (PPS, CPS, concurrent connections)."""
+
+    __tablename__ = "dperf_results"
+
+    id = db.Column(db.Integer, primary_key=True)
+    test_id = db.Column(db.Integer, db.ForeignKey("test_runs.id"), nullable=False)
+    node_id = db.Column(db.Integer, db.ForeignKey("nodes.id"), nullable=False)
+    role = db.Column(db.String(16), default="client")
+
+    # Test type: pps, cps, concurrent
+    dperf_type = db.Column(db.String(16), default="pps")
+    raw_output = db.Column(db.Text, nullable=True)
+    # Parsed metrics
+    snd_packets = db.Column(db.BigInteger, nullable=True)
+    snd_bytes = db.Column(db.BigInteger, nullable=True)
+    rcv_packets = db.Column(db.BigInteger, nullable=True)
+    rcv_bytes = db.Column(db.BigInteger, nullable=True)
+    # For CPS: connection rate
+    cps = db.Column(db.Float, nullable=True)
+    # For concurrent: max concurrent connections
+    concurrent = db.Column(db.Integer, nullable=True)
+
+    # Relationships
+    test = db.relationship("TestRun", back_populates="dperf_results")
+    node = db.relationship("Node", back_populates="dperf_results")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "test_id": self.test_id,
+            "node_id": self.node_id,
+            "node_name": self.node.name if self.node else None,
+            "role": self.role,
+            "dperf_type": self.dperf_type,
+            "snd_packets": self.snd_packets,
+            "snd_bytes": self.snd_bytes,
+            "rcv_packets": self.rcv_packets,
+            "rcv_bytes": self.rcv_bytes,
+            "cps": self.cps,
+            "concurrent": self.concurrent,
         }
 
 

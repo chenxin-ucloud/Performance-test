@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response, render_template
 
-from models import db, Node, TestRun, IperfResult, CpsResult, HardwareSnapshot
+from models import db, Node, TestRun, IperfResult, DperfResult, CpsResult, HardwareSnapshot
 from services.task_orchestrator import orchestrator
 from services.sse_manager import sse_manager
 from utils.formatters import format_bits, format_pps, format_cps, format_percent
@@ -127,12 +127,18 @@ def start_test():
         client_node_id=client_node_id,
         server_node_id=server_node_id,
         test_type=data.get("test_type", "tcp"),
+        engine=data.get("engine", "iperf3"),
         duration_sec=int(data.get("duration_sec", 10)),
         parallel_streams=int(data.get("parallel_streams", 1)),
         bandwidth_limit=data.get("bandwidth_limit"),
         reverse_mode=bool(data.get("reverse_mode", False)),
         bidirectional=bool(data.get("bidirectional", False)),
         measure_cps=bool(data.get("measure_cps", False)),
+        measure_pps=bool(data.get("measure_pps", False)),
+        measure_concurrent=bool(data.get("measure_concurrent", False)),
+        packet_size=int(data.get("packet_size", 64)),
+        cps_rate=int(data.get("cps_rate", 10000)),
+        concurrent_count=int(data.get("concurrent_count", 10000)),
     )
     db.session.add(test)
     db.session.commit()
@@ -158,10 +164,12 @@ def stop_test(test_id):
 @api_bp.route("/api/tests/<int:test_id>/results", methods=["GET"])
 def get_results(test_id):
     test = TestRun.query.get_or_404(test_id)
-    results = IperfResult.query.filter_by(test_id=test_id).all()
+    iperf_results = IperfResult.query.filter_by(test_id=test_id).all()
+    dperf_results = DperfResult.query.filter_by(test_id=test_id).all()
     return jsonify({
         "test": test.to_dict(),
-        "results": [r.to_dict() for r in results],
+        "iperf_results": [r.to_dict() for r in iperf_results],
+        "dperf_results": [r.to_dict() for r in dperf_results],
     })
 
 
