@@ -43,7 +43,15 @@ const deleteNode = (id) => apiDelete(`/api/nodes/${id}`);
 const checkNodeHealth = (id) => apiGet(`/api/nodes/${id}/health`);
 
 // Tests
-const getTests = (page = 1, perPage = 20) => apiGet(`/api/tests?page=${page}&per_page=${perPage}`);
+const getTests = (page = 1, perPage = 20, sort = null, filter = null) => {
+    let url = `/api/tests?page=${page}&per_page=${perPage}`;
+    if (sort && sort.field) url += `&sort=${encodeURIComponent(sort.field)}&order=${encodeURIComponent(sort.order || 'desc')}`;
+    if (filter) {
+        if (filter.protocol) url += `&protocol=${encodeURIComponent(filter.protocol)}`;
+        if (filter.status) url += `&status=${encodeURIComponent(filter.status)}`;
+    }
+    return apiGet(url);
+};
 const getTest = (id) => apiGet(`/api/tests/${id}`);
 const startTest = (config) => apiPost('/api/tests/start', config);
 const stopTest = (id) => apiPost(`/api/tests/${id}/stop`);

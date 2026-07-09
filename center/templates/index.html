@@ -157,9 +157,15 @@
                 <thead>
                     <tr>
                         <th>ID</th>
-                        <th>名称</th>
+                        <th class="th-sortable" onclick="sortBy('name')">名称 <span id="sort-name" class="sort-indicator"></span></th>
                         <th>客户端 → 服务端</th>
-                        <th>协议</th>
+                        <th>协议
+                            <select class="th-filter" onchange="filterBy('protocol', this.value)" onclick="event.stopPropagation()">
+                                <option value="">全部</option>
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                            </select>
+                        </th>
                         <th>时长</th>
                         <th>流数</th>
                         <th>平均带宽</th>
@@ -167,8 +173,17 @@
                         <th>PPS</th>
                         <th>CPS</th>
                         <th>并发连接</th>
-                        <th>状态</th>
-                        <th>时间</th>
+                        <th>状态
+                            <select class="th-filter" onchange="filterBy('status', this.value)" onclick="event.stopPropagation()">
+                                <option value="">全部</option>
+                                <option value="completed">completed</option>
+                                <option value="running">running</option>
+                                <option value="failed">failed</option>
+                                <option value="interrupted">interrupted</option>
+                                <option value="pending">pending</option>
+                            </select>
+                        </th>
+                        <th class="th-sortable" onclick="sortBy('started_at')">时间 <span id="sort-started_at" class="sort-indicator"></span></th>
                         <th>操作</th>
                     </tr>
                 </thead>

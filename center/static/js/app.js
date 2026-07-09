@@ -373,10 +373,37 @@ async function finishTest(status, errorMsg) {
 
 // ===== History =====
 
+// Sort/filter state for the history table (persisted across reloads within a session)
+let historySort = { field: 'started_at', order: 'desc' };
+let historyFilter = { protocol: '', status: '' };
+
+function sortBy(field) {
+    if (historySort.field === field) {
+        historySort.order = historySort.order === 'desc' ? 'asc' : 'desc';
+    } else {
+        historySort.field = field;
+        historySort.order = 'asc';
+    }
+    updateSortIndicators();
+    loadHistory();
+}
+
+function filterBy(field, value) {
+    historyFilter[field] = value;
+    loadHistory();
+}
+
+function updateSortIndicators() {
+    document.querySelectorAll('.sort-indicator').forEach(el => { el.textContent = ''; });
+    const el = document.getElementById('sort-' + historySort.field);
+    if (el) el.textContent = historySort.order === 'desc' ? '▼' : '▲';
+}
+
 async function loadHistory() {
     try {
-        const data = await getTests();
+        const data = await getTests(1, 20, historySort, historyFilter);
         renderHistory(data.items || []);
+        updateSortIndicators();
     } catch (e) {
         console.error('Failed to load history:', e);
     }

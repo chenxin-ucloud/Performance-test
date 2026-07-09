@@ -128,12 +128,29 @@ def list_tests():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
     node_id = request.args.get("node_id", type=int)
+    sort_field = request.args.get("sort", "started_at")
+    sort_order = request.args.get("order", "desc")
+    protocol = request.args.get("protocol", "", type=str).strip().lower()
+    status = request.args.get("status", "", type=str).strip().lower()
 
     q = TestRun.query
     if node_id:
         q = q.filter((TestRun.client_node_id == node_id) | (TestRun.server_node_id == node_id))
+    if protocol in ("tcp", "udp"):
+        q = q.filter(TestRun.test_type == protocol)
+    if status and status != "all":
+        q = q.filter(TestRun.status == status)
 
-    pagination = q.order_by(TestRun.created_at.desc()).paginate(
+    # Sorting: whitelist allowed columns to avoid injection via arbitrary field names.
+    sort_columns = {
+        "name": TestRun.name,
+        "started_at": TestRun.started_at,
+        "created_at": TestRun.created_at,
+    }
+    col = sort_columns.get(sort_field, TestRun.started_at)
+    q = q.order_by(col.desc() if sort_order == "desc" else col.asc())
+
+    pagination = q.paginate(
         page=page, per_page=per_page, error_out=False
     )
 

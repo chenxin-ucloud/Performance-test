@@ -230,6 +230,34 @@ body {
     font-family: "SF Mono", Monaco, monospace;
     font-size: 0.8rem;
 }
+
+/* Sortable headers + filter selects in history table */
+.history-table-wrapper th.th-sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition: color 0.15s;
+}
+.history-table-wrapper th.th-sortable:hover { color: var(--accent-blue); }
+.sort-indicator {
+    font-size: 0.7rem;
+    color: var(--accent-blue);
+    margin-left: 0.2rem;
+}
+.th-filter {
+    display: block;
+    width: 100%;
+    min-width: 72px;
+    margin-top: 0.3rem;
+    padding: 0.2rem 0.35rem;
+    font-size: 0.72rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.th-filter:focus { outline: none; border-color: var(--accent-blue); }
 .status-pending { color: var(--text-secondary); }
 .status-running { color: var(--accent-blue); }
 .status-completed { color: var(--accent-green); }
