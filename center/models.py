@@ -6,6 +6,24 @@ import json
 db = SQLAlchemy()
 
 
+def _iso(dt):
+    """Serialize a datetime to an ISO string the browser parses as UTC.
+
+    The codebase stores timestamps via datetime.utcnow(), which yields a
+    *naive* datetime (no tzinfo). isoformat() therefore emits e.g.
+    "2026-06-29T02:24:18" with no zone — and the browser's Date parser
+    treats zone-less ISO strings as local time, so Shanghai (UTC+8) users
+    see the stored UTC value 8h too early. Appending "Z" marks it UTC so
+    the browser converts to the viewer's local zone on display.
+    """
+    if not dt:
+        return None
+    s = dt.isoformat()
+    if dt.tzinfo is None and not s.endswith("Z"):
+        s += "Z"
+    return s
+
+
 class Node(db.Model):
     """A remote test node running the agent."""
 
@@ -39,8 +57,8 @@ class Node(db.Model):
             "agent_port": self.agent_port,
             "description": self.description,
             "status": self.status,
-            "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_seen_at": _iso(self.last_seen_at),
+            "created_at": _iso(self.created_at),
         }
 
 
@@ -105,8 +123,8 @@ class TestRun(db.Model):
             "cps_rate": self.cps_rate,
             "concurrent_count": self.concurrent_count,
             "status": self.status,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "started_at": _iso(self.started_at),
+            "completed_at": _iso(self.completed_at),
         }
 
 
@@ -229,7 +247,7 @@ class CpsResult(db.Model):
             "connections_succeeded": self.connections_succeeded,
             "duration_ms": self.duration_ms,
             "cps": self.cps,
-            "measured_at": self.measured_at.isoformat() if self.measured_at else None,
+            "measured_at": _iso(self.measured_at),
         }
 
 
@@ -266,7 +284,7 @@ class HardwareSnapshot(db.Model):
             "test_id": self.test_id,
             "node_id": self.node_id,
             "node_name": self.node.name if self.node else None,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": _iso(self.timestamp),
             "cpu_percent": self.cpu_percent,
             "cpu_per_core": json.loads(self.cpu_per_core) if self.cpu_per_core else None,
             "memory_percent": self.memory_percent,
