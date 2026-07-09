@@ -153,8 +153,12 @@
     <section class="history-panel">
         <div class="history-head">
             <h2>📊 测试历史</h2>
-            <button id="clearFilterBtn" class="clear-filter-btn" onclick="clearFilters()" style="display:none">↩ 返回列表</button>
-            <button id="batchDeleteBtn" class="batch-delete-btn" onclick="batchDelete()" style="display:none">🗑 删除选中 (<span id="selectedCount">0</span>)</button>
+            <button id="clearFilterBtn" class="clear-filter-btn" onclick="clearFilters()" style="display:none">↩ 返回列表</button>            
+            <div class="selection-bar" id="selectionBar">
+                <span class="sel-text">已选择 <b id="selCount">0</b> 项</span>
+                <button class="sel-clear-btn" onclick="clearSelection(event)">取消选择</button>
+            </div>
+            <button id="batchDeleteBtn" class="batch-delete-btn" onclick="batchDelete()" style="display:none">删除</button>
         </div>
         <div class="history-table-wrapper">
             <table id="historyTable">
@@ -204,14 +208,16 @@
         <div class="pagination-bar">
             <div class="pagination" id="pagination"></div>
             <div class="per-page">
-                <span>每页</span>
                 <select id="perPageSelect" onchange="changePerPage(this.value)">
-                    <option value="10">10</option>
-                    <option value="20" selected>20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
+                    <option value="10">10 条/页</option>
+                    <option value="20" selected>20 条/页</option>
+                    <option value="50">50 条/页</option>
+                    <option value="100">100 条/页</option>
                 </select>
-                <span>条</span>
+            </div>
+            <div class="page-jump">
+                <input type="number" id="pageJumpInput" min="1" onkeydown="onPageJumpKey(event)" placeholder="">
+                <span>/ <b id="totalPagesDisplay">1</b></span>
             </div>
         </div>
     </section>

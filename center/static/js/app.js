@@ -385,7 +385,8 @@ let historySelected = new Set();
 
 function resetToFirstPage() {
     historyPage = 1;
-    historySelected.clear();
+    // Keep historySelected across sort/filter/perPage changes (mainstream tables
+    // preserve selection across views — only explicit "取消选择" or delete clears it).
 }
 
 function sortBy(field) {
@@ -517,17 +518,42 @@ function toggleSelect(id, checked) {
 
 function updateBatchBar() {
     const n = historySelected.size;
-    const cnt = document.getElementById('selectedCount');
+    // Batch delete button in the header
     const btn = document.getElementById('batchDeleteBtn');
-    if (cnt) cnt.textContent = n;
     if (btn) btn.style.display = n > 0 ? '' : 'none';
+    // Selection bar above the table (Element-style "已选 N 项 / 取消选择")
+    const bar = document.getElementById('selectionBar');
+    const cnt = document.getElementById('selCount');
+    if (cnt) cnt.textContent = n;
+    if (bar) bar.classList.toggle('active', n > 0);
+}
+
+function clearSelection(event) {
+    if (event) event.stopPropagation();
+    historySelected.clear();
+    document.querySelectorAll('#historyTableBody input[type=checkbox][data-id]').forEach(cb => cb.checked = false);
+    updateSelectAllCb();
+    updateBatchBar();
 }
 
 function updateSelectAllCb() {
     const cbs = document.querySelectorAll('#historyTableBody input[type=checkbox][data-id]');
-    const allChecked = cbs.length > 0 && Array.from(cbs).every(cb => cb.checked);
+    const total = cbs.length;
+    const checked = Array.from(cbs).filter(cb => cb.checked).length;
     const cb = document.getElementById('selectAllCb');
-    if (cb) cb.checked = allChecked;
+    if (!cb) return;
+    if (total === 0) {
+        cb.checked = false;
+        cb.indeterminate = false;
+        return;
+    }
+    if (checked === total) {
+        cb.checked = true;
+        cb.indeterminate = false;
+    } else {
+        cb.checked = false;
+        cb.indeterminate = checked > 0; // partial selection → half-check state
+    }
 }
 
 async function batchDelete() {
@@ -550,8 +576,32 @@ async function batchDelete() {
 function changePage(p) {
     if (p < 1 || p > historyPages || p === historyPage) return;
     historyPage = p;
-    historySelected.clear();
+    // Keep selection across pages — each row's checkbox is restored from
+    // historySelected in renderHistory.
     loadHistory();
+}
+
+function pageJump() {
+    const input = document.getElementById('pageJumpInput');
+    if (!input) return;
+    const p = parseInt(input.value);
+    if (isNaN(p) || p < 1) {
+        input.value = '';
+        return;
+    }
+    if (p > historyPages) {
+        input.value = historyPages;
+        changePage(historyPages);
+        return;
+    }
+    changePage(p);
+}
+
+function onPageJumpKey(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        pageJump();
+    }
 }
 
 function changePerPage(n) {
@@ -569,6 +619,7 @@ function renderPagination() {
         return;
     }
     let html = '';
+    html += `<span class="page-info">共 ${historyTotal} 条</span>`;
     html += `<button class="page-btn" ${cur <= 1 ? 'disabled' : ''} onclick="changePage(${cur - 1})">‹ 上一页</button>`;
     let start = Math.max(1, cur - 2);
     let end = Math.min(total, start + 4);
@@ -580,9 +631,15 @@ function renderPagination() {
     }
     if (end < total - 1) html += `<span class="page-ellipsis">…</span>`;
     if (end < total) html += `<button class="page-btn" onclick="changePage(${total})">${total}</button>`;
-    html += `<button class="page-btn" ${cur >= total ? 'disabled' : ''} onclick="changePage(${cur + 1})">下一页 ›</button>`;
-    html += `<span class="page-info">第 ${cur}/${total} 页 · 共 ${historyTotal} 条</span>`;
+    html += `<button class="page-btn" ${cur >= total ? 'disabled' : ''} onclick="changePage(${cur + 1})">下一页 ›</button>`;    
     cont.innerHTML = html;
+    const totalEl = document.getElementById('totalPagesDisplay');
+    if (totalEl) totalEl.textContent = total;
+    const jump = document.getElementById('pageJumpInput');
+    if (jump) {
+        jump.max = total;
+        jump.value = ''; // keep input empty by default
+    }
 }
 
 function renderHistory(tests) {
