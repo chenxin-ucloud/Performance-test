@@ -44,6 +44,8 @@ function setupEventHandlers() {
     document.getElementById('testConfigForm').addEventListener('submit', onStartTest);
     document.getElementById('stopTestBtn').addEventListener('click', onStopTest);
     document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('editNodeForm').addEventListener('submit', onEditNode);
+    document.getElementById('nodeEditClose').addEventListener('click', closeNodeEditModal);
 }
 
 // ===== Nodes =====
@@ -67,6 +69,7 @@ function renderNodes() {
             <td class="status-${n.status || 'unknown'}">${n.status || 'unknown'}</td>
             <td>
                 <button class="btn-small" onclick="checkNode(${n.id})">检测</button>
+                <button class="btn-small" onclick="editNode(${n.id})">编辑</button>
                 <button class="btn-small" onclick="removeNode(${n.id})">删除</button>
             </td>
         </tr>
@@ -108,6 +111,39 @@ async function removeNode(id) {
         loadNodes();
     } catch (e) {
         alert('删除失败: ' + e.message);
+    }
+}
+
+function editNode(id) {
+    const n = nodes.find(x => x.id === id);
+    if (!n) return;
+    document.getElementById('editNodeId').value = n.id;
+    document.getElementById('editNodeName').value = n.name || '';
+    document.getElementById('editNodeHost').value = n.host || '';
+    document.getElementById('editNodePort').value = n.agent_port || 5002;
+    document.getElementById('editNodeDesc').value = n.description || '';
+    document.getElementById('nodeEditModal').classList.add('active');
+}
+
+function closeNodeEditModal() {
+    document.getElementById('nodeEditModal').classList.remove('active');
+}
+
+async function onEditNode(e) {
+    e.preventDefault();
+    const id = parseInt(document.getElementById('editNodeId').value);
+    const data = {
+        name: document.getElementById('editNodeName').value,
+        host: document.getElementById('editNodeHost').value,
+        agent_port: parseInt(document.getElementById('editNodePort').value) || 5002,
+        description: document.getElementById('editNodeDesc').value,
+    };
+    try {
+        await updateNode(id, data);
+        closeNodeEditModal();
+        loadNodes();
+    } catch (e) {
+        alert('保存失败: ' + e.message);
     }
 }
 

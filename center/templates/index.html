@@ -182,6 +182,37 @@
         </div>
     </div>
 
+    <!-- Node Edit Modal -->
+    <div class="modal" id="nodeEditModal">
+        <div class="modal-content" style="max-width: 480px;">
+            <span class="modal-close" id="nodeEditClose">&times;</span>
+            <h2>编辑节点</h2>
+            <form id="editNodeForm">
+                <input type="hidden" id="editNodeId">
+                <div class="form-row">
+                    <label>节点名称</label>
+                    <input type="text" id="editNodeName" required>
+                </div>
+                <div class="form-row">
+                    <label>IP / 主机名</label>
+                    <input type="text" id="editNodeHost" required>
+                </div>
+                <div class="form-row">
+                    <label>Agent 端口</label>
+                    <input type="number" id="editNodePort" value="5002" min="1" max="65535">
+                </div>
+                <div class="form-row">
+                    <label>描述 (可选)</label>
+                    <input type="text" id="editNodeDesc">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">💾 保存</button>
+                    <button type="button" class="btn-secondary" onclick="closeNodeEditModal()">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

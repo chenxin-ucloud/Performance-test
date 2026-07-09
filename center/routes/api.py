@@ -67,6 +67,29 @@ def create_node():
     return jsonify(node.to_dict()), 201
 
 
+@api_bp.route("/api/nodes/<int:node_id>", methods=["PUT"])
+def update_node(node_id):
+    """Update an existing node's name / host / port / description."""
+    node = Node.query.get_or_404(node_id)
+    data = request.get_json() or {}
+    name = data.get("name", "").strip()
+    host = data.get("host", "").strip()
+    if not name or not host:
+        return jsonify({"error": "name and host are required"}), 400
+
+    # If the address changed, the cached online/offline status is stale.
+    address_changed = host != node.host or int(data.get("agent_port", node.agent_port)) != node.agent_port
+
+    node.name = name
+    node.host = host
+    node.agent_port = int(data.get("agent_port", node.agent_port))
+    node.description = data.get("description", "").strip()
+    if address_changed:
+        node.status = "unknown"
+    db.session.commit()
+    return jsonify(node.to_dict())
+
+
 @api_bp.route("/api/nodes/<int:node_id>", methods=["DELETE"])
 def delete_node(node_id):
     node = Node.query.get_or_404(node_id)

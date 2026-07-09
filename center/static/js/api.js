@@ -25,9 +25,20 @@ async function apiDelete(path) {
     return resp.json();
 }
 
+async function apiPut(path, data = {}) {
+    const resp = await fetch(`${API_BASE}${path}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+    if (!resp.ok) throw new Error(`PUT ${path} failed: ${resp.status}`);
+    return resp.json();
+}
+
 // Nodes
 const getNodes = () => apiGet('/api/nodes');
 const addNode = (data) => apiPost('/api/nodes', data);
+const updateNode = (id, data) => apiPut(`/api/nodes/${id}`, data);
 const deleteNode = (id) => apiDelete(`/api/nodes/${id}`);
 const checkNodeHealth = (id) => apiGet(`/api/nodes/${id}/health`);
 
