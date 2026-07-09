@@ -306,6 +306,86 @@ body {
     transition: border-color 0.15s, color 0.15s;
 }
 .clear-filter-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+/* Checkbox column (batch select) */
+.history-table-wrapper th.th-check,
+.history-table-wrapper td.td-check {
+    width: 36px;
+    text-align: center;
+    padding: 0.45rem 0.3rem;
+}
+.history-table-wrapper th.th-check input,
+.history-table-wrapper td.td-check input {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent-blue);
+    vertical-align: middle;
+}
+.history-table-wrapper td.td-check { cursor: default; }
+
+/* Batch delete button */
+.batch-delete-btn {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.78rem;
+    background: rgba(239,68,68,0.12);
+    border: 1px solid var(--accent-red);
+    color: var(--accent-red);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.batch-delete-btn:hover { background: var(--accent-red); color: white; }
+
+/* Pagination bar */
+.pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.5rem 0.25rem;
+    flex-wrap: wrap;
+}
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+.page-btn {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    min-width: 34px;
+    white-space: nowrap;
+}
+.page-btn:hover:not(:disabled) { border-color: var(--accent-blue); color: var(--accent-blue); }
+.page-btn.active { background: var(--accent-blue); border-color: var(--accent-blue); color: white; cursor: default; }
+.page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.page-ellipsis { color: var(--text-secondary); padding: 0 0.2rem; }
+.page-info { color: var(--text-secondary); font-size: 0.78rem; margin-left: 0.5rem; }
+.per-page {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+.per-page select {
+    padding: 0.25rem 0.4rem;
+    font-size: 0.8rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.per-page select:focus { outline: none; border-color: var(--accent-blue); }
+
 .status-pending { color: var(--text-secondary); }
 .status-running { color: var(--accent-blue); }
 .status-completed { color: var(--accent-green); }

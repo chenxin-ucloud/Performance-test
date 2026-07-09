@@ -154,11 +154,13 @@
         <div class="history-head">
             <h2>📊 测试历史</h2>
             <button id="clearFilterBtn" class="clear-filter-btn" onclick="clearFilters()" style="display:none">↩ 返回列表</button>
+            <button id="batchDeleteBtn" class="batch-delete-btn" onclick="batchDelete()" style="display:none">🗑 删除选中 (<span id="selectedCount">0</span>)</button>
         </div>
         <div class="history-table-wrapper">
             <table id="historyTable">
                 <thead>
                     <tr>
+                        <th class="th-check"><input type="checkbox" id="selectAllCb" onclick="selectAll(this.checked)" title="全选当前页"></th>
                         <th>ID</th>
                         <th class="th-sortable" onclick="sortBy('name')">名称 <span id="sort-name" class="sort-indicator"></span></th>
                         <th>客户端 → 服务端</th>
@@ -198,6 +200,19 @@
                 </thead>
                 <tbody id="historyTableBody"></tbody>
             </table>
+        </div>
+        <div class="pagination-bar">
+            <div class="pagination" id="pagination"></div>
+            <div class="per-page">
+                <span>每页</span>
+                <select id="perPageSelect" onchange="changePerPage(this.value)">
+                    <option value="10">10</option>
+                    <option value="20" selected>20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <span>条</span>
+            </div>
         </div>
     </section>
 

@@ -377,6 +377,16 @@ async function finishTest(status, errorMsg) {
 let historySort = { field: 'started_at', order: 'desc' };
 let historyFilter = { protocol: '', status: '' };
 let activeFilterMenu = null;
+let historyPage = 1;
+let historyPerPage = 20;
+let historyTotal = 0;
+let historyPages = 1;
+let historySelected = new Set();
+
+function resetToFirstPage() {
+    historyPage = 1;
+    historySelected.clear();
+}
 
 function sortBy(field) {
     if (historySort.field === field) {
@@ -385,6 +395,7 @@ function sortBy(field) {
         historySort.field = field;
         historySort.order = 'asc';
     }
+    resetToFirstPage();
     updateSortIndicators();
     loadHistory();
 }
@@ -423,6 +434,7 @@ function filterBy(field, value) {
     historyFilter[field] = value;
     closeFilterMenus();
     updateFilterChips();
+    resetToFirstPage();
     loadHistory();
 }
 
@@ -435,6 +447,7 @@ function clearFilters() {
     historyFilter = { protocol: '', status: '' };
     closeFilterMenus();
     updateFilterChips();
+    resetToFirstPage();
     loadHistory();
 }
 
@@ -464,13 +477,112 @@ document.addEventListener('click', (e) => {
 
 async function loadHistory() {
     try {
-        const data = await getTests(1, 20, historySort, historyFilter);
+        const data = await getTests(historyPage, historyPerPage, historySort, historyFilter);
+        historyTotal = data.total || 0;
+        historyPages = data.pages || 1;
+        // Clamp page if out of range (e.g. after deletions)
+        if (historyPage > historyPages && historyPages > 0) {
+            historyPage = historyPages;
+        }
         renderHistory(data.items || []);
         updateSortIndicators();
         updateFilterChips();
+        renderPagination();
+        updateBatchBar();
+        updateSelectAllCb();
     } catch (e) {
         console.error('Failed to load history:', e);
     }
+}
+
+// ===== Batch select + pagination =====
+
+function selectAll(checked) {
+    const cbs = document.querySelectorAll('#historyTableBody input[type=checkbox][data-id]');
+    cbs.forEach(cb => {
+        cb.checked = checked;
+        const id = parseInt(cb.dataset.id);
+        if (checked) historySelected.add(id);
+        else historySelected.delete(id);
+    });
+    updateBatchBar();
+}
+
+function toggleSelect(id, checked) {
+    if (checked) historySelected.add(id);
+    else historySelected.delete(id);
+    updateBatchBar();
+    updateSelectAllCb();
+}
+
+function updateBatchBar() {
+    const n = historySelected.size;
+    const cnt = document.getElementById('selectedCount');
+    const btn = document.getElementById('batchDeleteBtn');
+    if (cnt) cnt.textContent = n;
+    if (btn) btn.style.display = n > 0 ? '' : 'none';
+}
+
+function updateSelectAllCb() {
+    const cbs = document.querySelectorAll('#historyTableBody input[type=checkbox][data-id]');
+    const allChecked = cbs.length > 0 && Array.from(cbs).every(cb => cb.checked);
+    const cb = document.getElementById('selectAllCb');
+    if (cb) cb.checked = allChecked;
+}
+
+async function batchDelete() {
+    const ids = Array.from(historySelected);
+    if (!ids.length) return;
+    if (!confirm(`确定删除选中的 ${ids.length} 条测试记录?该操作不可恢复。`)) return;
+    try {
+        const res = await batchDeleteTests(ids);
+        historySelected.clear();
+        // If the current page is now empty, step back one page
+        const remaining = historyTotal - res.deleted;
+        const maxPage = Math.max(1, Math.ceil(remaining / historyPerPage));
+        if (historyPage > maxPage) historyPage = maxPage;
+        loadHistory();
+    } catch (e) {
+        alert('批量删除失败: ' + e.message);
+    }
+}
+
+function changePage(p) {
+    if (p < 1 || p > historyPages || p === historyPage) return;
+    historyPage = p;
+    historySelected.clear();
+    loadHistory();
+}
+
+function changePerPage(n) {
+    historyPerPage = parseInt(n) || 20;
+    resetToFirstPage();
+    loadHistory();
+}
+
+function renderPagination() {
+    const cont = document.getElementById('pagination');
+    if (!cont) return;
+    const cur = historyPage, total = historyPages;
+    if (total <= 1) {
+        cont.innerHTML = `<span class="page-info">共 ${historyTotal} 条</span>`;
+        return;
+    }
+    let html = '';
+    html += `<button class="page-btn" ${cur <= 1 ? 'disabled' : ''} onclick="changePage(${cur - 1})">‹ 上一页</button>`;
+    let start = Math.max(1, cur - 2);
+    let end = Math.min(total, start + 4);
+    start = Math.max(1, end - 4);
+    if (start > 1) html += `<button class="page-btn" onclick="changePage(1)">1</button>`;
+    if (start > 2) html += `<span class="page-ellipsis">…</span>`;
+    for (let i = start; i <= end; i++) {
+        html += `<button class="page-btn ${i === cur ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+    }
+    if (end < total - 1) html += `<span class="page-ellipsis">…</span>`;
+    if (end < total) html += `<button class="page-btn" onclick="changePage(${total})">${total}</button>`;
+    html += `<button class="page-btn" ${cur >= total ? 'disabled' : ''} onclick="changePage(${cur + 1})">下一页 ›</button>`;
+    html += `<span class="page-info">第 ${cur}/${total} 页 · 共 ${historyTotal} 条</span>`;
+    cont.innerHTML = html;
 }
 
 function renderHistory(tests) {
@@ -486,6 +598,7 @@ function renderHistory(tests) {
         const connDisplay = t.conns_succeeded != null ? t.conns_succeeded.toLocaleString() : '-';
         return `
         <tr onclick="showTestDetail(${t.id})" style="cursor:pointer">
+            <td class="td-check"><input type="checkbox" data-id="${t.id}" ${historySelected.has(t.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleSelect(${t.id}, this.checked)"></td>
             <td>${t.id}</td>
             <td>${escapeHtml(t.name || '-')}</td>
             <td>${escapeHtml(clientName)} → ${escapeHtml(serverName)}</td>
@@ -511,6 +624,11 @@ async function deleteTestItem(id) {
     if (!confirm('确定删除该测试记录?')) return;
     try {
         await deleteTest(id);
+        historySelected.delete(id);
+        // Step back if the current page becomes empty
+        const remaining = historyTotal - 1;
+        const maxPage = Math.max(1, Math.ceil(remaining / historyPerPage));
+        if (historyPage > maxPage) historyPage = maxPage;
         loadHistory();
     } catch (e) {
         alert('删除失败: ' + e.message);

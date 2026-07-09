@@ -56,6 +56,7 @@ const getTest = (id) => apiGet(`/api/tests/${id}`);
 const startTest = (config) => apiPost('/api/tests/start', config);
 const stopTest = (id) => apiPost(`/api/tests/${id}/stop`);
 const deleteTest = (id) => apiDelete(`/api/tests/${id}`);
+const batchDeleteTests = (ids) => apiPost('/api/tests/batch/delete', { ids });
 
 // Results
 const getResults = (id) => apiGet(`/api/tests/${id}/results`);

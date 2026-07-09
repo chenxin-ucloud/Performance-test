@@ -216,6 +216,23 @@ def delete_test(test_id):
     return jsonify({"message": "deleted"})
 
 
+@api_bp.route("/api/tests/batch/delete", methods=["POST"])
+def batch_delete_tests():
+    """Delete multiple test runs (and their cascaded results) at once."""
+    data = request.get_json() or {}
+    ids = data.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids list is required"}), 400
+    deleted = 0
+    for tid in ids:
+        test = TestRun.query.get(tid)
+        if test:
+            db.session.delete(test)
+            deleted += 1
+    db.session.commit()
+    return jsonify({"deleted": deleted})
+
+
 @api_bp.route("/api/tests/start", methods=["POST"])
 def start_test():
     data = request.get_json() or {}
