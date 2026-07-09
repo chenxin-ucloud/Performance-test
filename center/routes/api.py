@@ -209,7 +209,7 @@ def start_test():
         return jsonify({"error": "client_node_id and server_node_id are required"}), 400
 
     test = TestRun(
-        name=data.get("name", "").strip(),
+        name=(data.get("name") or "").strip(),
         client_node_id=client_node_id,
         server_node_id=server_node_id,
         test_type=data.get("test_type", "tcp"),

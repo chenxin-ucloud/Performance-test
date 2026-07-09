@@ -185,6 +185,7 @@ async function onStartTest(e) {
         reverse_mode: document.getElementById('reverseMode').checked,
         bidirectional: document.getElementById('bidirectional').checked,
         measure_cps: document.getElementById('measureCps').checked,
+        name: (document.getElementById('testName').value || '').trim(),
     };
 
     try {
