@@ -376,6 +376,7 @@ async function finishTest(status, errorMsg) {
 // Sort/filter state for the history table (persisted across reloads within a session)
 let historySort = { field: 'started_at', order: 'desc' };
 let historyFilter = { protocol: '', status: '' };
+let activeFilterMenu = null;
 
 function sortBy(field) {
     if (historySort.field === field) {
@@ -388,9 +389,64 @@ function sortBy(field) {
     loadHistory();
 }
 
+function toggleFilterMenu(field, event) {
+    event.stopPropagation();
+    const pop = document.getElementById('filter-popover-' + field);
+    if (!pop) return;
+    // Already open? close it.
+    if (pop.classList.contains('active')) {
+        closeFilterMenus();
+        return;
+    }
+    // Close any other open popover first
+    closeFilterMenus();
+    // Position the fixed popover under the funnel icon, flipping left if it
+    // would overflow the viewport (status column sits near the right edge).
+    const funnel = event.currentTarget;
+    const r = funnel.getBoundingClientRect();
+    const popW = pop.offsetWidth || 120;
+    let left = r.left;
+    if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+    if (left < 8) left = 8;
+    pop.style.top = (r.bottom + 4) + 'px';
+    pop.style.left = left + 'px';
+    pop.classList.add('active');
+    activeFilterMenu = field;
+    // Highlight the currently selected option
+    const current = historyFilter[field];
+    pop.querySelectorAll('.filter-option').forEach(opt => {
+        opt.classList.toggle('selected', opt.dataset.value === current);
+    });
+}
+
 function filterBy(field, value) {
     historyFilter[field] = value;
+    closeFilterMenus();
+    updateFilterChips();
     loadHistory();
+}
+
+function closeFilterMenus() {
+    document.querySelectorAll('.filter-popover.active').forEach(p => p.classList.remove('active'));
+    activeFilterMenu = null;
+}
+
+function clearFilters() {
+    historyFilter = { protocol: '', status: '' };
+    closeFilterMenus();
+    updateFilterChips();
+    loadHistory();
+}
+
+function updateFilterChips() {
+    // Funnel icon turns blue when its filter is active
+    document.querySelectorAll('.funnel').forEach(f => {
+        f.classList.toggle('active', !!historyFilter[f.dataset.field]);
+    });
+    // Show "返回列表" button only when any filter is active
+    const hasFilter = historyFilter.protocol || historyFilter.status;
+    const btn = document.getElementById('clearFilterBtn');
+    if (btn) btn.style.display = hasFilter ? '' : 'none';
 }
 
 function updateSortIndicators() {
@@ -399,11 +455,19 @@ function updateSortIndicators() {
     if (el) el.textContent = historySort.order === 'desc' ? '▼' : '▲';
 }
 
+// Close any open filter popover when clicking outside the header or popover
+document.addEventListener('click', (e) => {
+    if (activeFilterMenu && !e.target.closest('.th-filterable') && !e.target.closest('.filter-popover')) {
+        closeFilterMenus();
+    }
+});
+
 async function loadHistory() {
     try {
         const data = await getTests(1, 20, historySort, historyFilter);
         renderHistory(data.items || []);
         updateSortIndicators();
+        updateFilterChips();
     } catch (e) {
         console.error('Failed to load history:', e);
     }

@@ -231,7 +231,7 @@ body {
     font-size: 0.8rem;
 }
 
-/* Sortable headers + filter selects in history table */
+/* Sortable headers + funnel filters in history table */
 .history-table-wrapper th.th-sortable {
     cursor: pointer;
     user-select: none;
@@ -244,20 +244,68 @@ body {
     color: var(--accent-blue);
     margin-left: 0.2rem;
 }
-.th-filter {
-    display: block;
-    width: 100%;
-    min-width: 72px;
-    margin-top: 0.3rem;
-    padding: 0.2rem 0.35rem;
-    font-size: 0.72rem;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    cursor: pointer;
+
+/* Funnel filter (popover style, sits to the right of the header text) */
+.history-table-wrapper th.th-filterable {
+    position: relative;
+    white-space: nowrap;
 }
-.th-filter:focus { outline: none; border-color: var(--accent-blue); }
+.funnel {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.35rem;
+    padding: 0.1rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    vertical-align: middle;
+}
+.funnel:hover { color: var(--accent-blue); background: rgba(59,130,246,0.1); }
+.funnel.active { color: var(--accent-blue); }
+.funnel.active svg { filter: drop-shadow(0 0 2px rgba(59,130,246,0.5)); }
+.filter-popover {
+    display: none;
+    position: fixed;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+    z-index: 1000;
+    min-width: 120px;
+    padding: 0.25rem 0;
+}
+.filter-popover.active { display: block; }
+.filter-option {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.filter-option:hover { background: rgba(59,130,246,0.15); }
+.filter-option.selected { color: var(--accent-blue); font-weight: 500; }
+.filter-option.selected::before { content: '✓ '; }
+
+/* History header row + clear-filter button */
+.history-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.history-head h2 { margin: 0; }
+.clear-filter-btn {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.78rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.clear-filter-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
 .status-pending { color: var(--text-secondary); }
 .status-running { color: var(--accent-blue); }
 .status-completed { color: var(--accent-green); }

@@ -151,7 +151,10 @@
 
     <!-- Bottom Panel: Test History -->
     <section class="history-panel">
-        <h2>📊 测试历史</h2>
+        <div class="history-head">
+            <h2>📊 测试历史</h2>
+            <button id="clearFilterBtn" class="clear-filter-btn" onclick="clearFilters()" style="display:none">↩ 返回列表</button>
+        </div>
         <div class="history-table-wrapper">
             <table id="historyTable">
                 <thead>
@@ -159,12 +162,15 @@
                         <th>ID</th>
                         <th class="th-sortable" onclick="sortBy('name')">名称 <span id="sort-name" class="sort-indicator"></span></th>
                         <th>客户端 → 服务端</th>
-                        <th>协议
-                            <select class="th-filter" onchange="filterBy('protocol', this.value)" onclick="event.stopPropagation()">
-                                <option value="">全部</option>
-                                <option value="tcp">TCP</option>
-                                <option value="udp">UDP</option>
-                            </select>
+                        <th class="th-filterable">协议
+                            <span class="funnel" data-field="protocol" onclick="toggleFilterMenu('protocol', event)" title="筛选协议">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2h14l-5 6v5l-4 2V8L1 2z"/></svg>
+                            </span>
+                            <div class="filter-popover" id="filter-popover-protocol">
+                                <div class="filter-option" data-value="" onclick="filterBy('protocol','')">全部</div>
+                                <div class="filter-option" data-value="tcp" onclick="filterBy('protocol','tcp')">TCP</div>
+                                <div class="filter-option" data-value="udp" onclick="filterBy('protocol','udp')">UDP</div>
+                            </div>
                         </th>
                         <th>时长</th>
                         <th>流数</th>
@@ -173,15 +179,18 @@
                         <th>PPS</th>
                         <th>CPS</th>
                         <th>并发连接</th>
-                        <th>状态
-                            <select class="th-filter" onchange="filterBy('status', this.value)" onclick="event.stopPropagation()">
-                                <option value="">全部</option>
-                                <option value="completed">completed</option>
-                                <option value="running">running</option>
-                                <option value="failed">failed</option>
-                                <option value="interrupted">interrupted</option>
-                                <option value="pending">pending</option>
-                            </select>
+                        <th class="th-filterable">状态
+                            <span class="funnel" data-field="status" onclick="toggleFilterMenu('status', event)" title="筛选状态">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2h14l-5 6v5l-4 2V8L1 2z"/></svg>
+                            </span>
+                            <div class="filter-popover" id="filter-popover-status">
+                                <div class="filter-option" data-value="" onclick="filterBy('status','')">全部</div>
+                                <div class="filter-option" data-value="completed" onclick="filterBy('status','completed')">completed</div>
+                                <div class="filter-option" data-value="running" onclick="filterBy('status','running')">running</div>
+                                <div class="filter-option" data-value="failed" onclick="filterBy('status','failed')">failed</div>
+                                <div class="filter-option" data-value="interrupted" onclick="filterBy('status','interrupted')">interrupted</div>
+                                <div class="filter-option" data-value="pending" onclick="filterBy('status','pending')">pending</div>
+                            </div>
                         </th>
                         <th class="th-sortable" onclick="sortBy('started_at')">时间 <span id="sort-started_at" class="sort-indicator"></span></th>
                         <th>操作</th>
