@@ -391,6 +391,29 @@ async function deleteTestItem(id) {
 
 // ===== Test Detail Modal =====
 
+function pct(v) { return v == null ? '-' : (typeof v === 'number' ? v.toFixed(1) + '%' : v); }
+function num(v, digits = 2) { return v == null ? '-' : (typeof v === 'number' ? v.toFixed(digits) : v); }
+
+function aggregateHardware(hwSnaps) {
+    if (!Array.isArray(hwSnaps) || hwSnaps.length === 0) return [];
+    const byNode = {};
+    for (const s of hwSnaps) {
+        const key = s.node_name || ('node-' + s.node_id);
+        if (!byNode[key]) {
+            byNode[key] = { name: key, cpu: 0, mem: 0, tx_mbps: 0, rx_mbps: 0, tx_pps: 0, rx_pps: 0, count: 0 };
+        }
+        const agg = byNode[key];
+        agg.count++;
+        agg.cpu = Math.max(agg.cpu, s.cpu_percent || 0);
+        agg.mem = Math.max(agg.mem, s.memory_percent || 0);
+        agg.tx_mbps = Math.max(agg.tx_mbps, s.network_tx_mbps || 0);
+        agg.rx_mbps = Math.max(agg.rx_mbps, s.network_rx_mbps || 0);
+        agg.tx_pps = Math.max(agg.tx_pps, s.network_tx_pps || 0);
+        agg.rx_pps = Math.max(agg.rx_pps, s.network_rx_pps || 0);
+    }
+    return Object.values(byNode);
+}
+
 async function showTestDetail(testId) {
     try {
         const [testData, resultsData, cpsData, hwData] = await Promise.all([
@@ -404,78 +427,147 @@ async function showTestDetail(testId) {
         const iperfResults = resultsData.iperf_results || [];
         const dperfResults = resultsData.dperf_results || [];
         const cps = cpsData || [];
+        const ppsSummary = resultsData.pps_summary || {};
+        const cpsSummary = resultsData.cps_summary || null;
+        const hwAgg = aggregateHardware(hwData);
 
+        const clientName = test.client_node ? test.client_node.name : '?';
+        const serverName = test.server_node ? test.server_node.name : '?';
+
+        // --- Header ---
         let html = `<div class="detail-section">`;
-        html += `<h3>测试 #${test.id} — ${escapeHtml(test.name || '未命名')}</h3>`;
-        html += `<p><strong>客户端:</strong> ${test.client_node ? test.client_node.name : '?'} → <strong>服务端:</strong> ${test.server_node ? test.server_node.name : '?'}</p>`;
-        html += `<p><strong>协议:</strong> ${test.test_type.toUpperCase()} | <strong>时长:</strong> ${test.duration_sec}s | <strong>流数:</strong> ${test.parallel_streams}</p>`;
-        html += `<p><strong>状态:</strong> <span class="status-${test.status}">${test.status}</span></p>`;
+        html += `<div class="detail-header">
+            <div>
+                <div class="detail-title">测试 #${test.id} — ${escapeHtml(test.name || '未命名')}</div>
+                <div class="detail-subtitle">${formatDate(test.started_at)}${test.completed_at ? ' → ' + formatDate(test.completed_at) : ''}</div>
+            </div>
+            <span class="status-badge status-${test.status}">${test.status}</span>
+        </div>`;
 
-        // Iperf results
+        // --- Meta grid ---
+        const hasBw = iperfResults.some(r => r.summary_bits_per_sec);
+        const avgBw = hasBw ? (iperfResults.map(r => r.summary_bits_per_sec).filter(Boolean).reduce((a, b) => a + b, 0) / iperfResults.filter(r => r.summary_bits_per_sec).length / 1e6) : null;
+        html += `<div class="detail-meta">
+            <div class="detail-meta-item"><div class="label">客户端 → 服务端</div><div class="value">${escapeHtml(clientName)} → ${escapeHtml(serverName)}</div></div>
+            <div class="detail-meta-item"><div class="label">协议 / 引擎</div><div class="value">${test.test_type.toUpperCase()} / ${test.engine || 'iperf3'}</div></div>
+            <div class="detail-meta-item"><div class="label">时长 / 流数</div><div class="value">${test.duration_sec}s / ${test.parallel_streams}</div></div>
+            <div class="detail-meta-item"><div class="label">带宽限制</div><div class="value">${test.bandwidth_limit || '不限'}</div></div>
+            <div class="detail-meta-item"><div class="label">测试选项</div><div class="value">${[
+                test.reverse_mode ? '反向' : '',
+                test.bidirectional ? '双向' : '',
+                test.measure_cps ? '测CPS' : '',
+                test.measure_pps ? '测PPS' : '',
+                test.measure_concurrent ? '测并发' : '',
+            ].filter(Boolean).join(' · ') || '默认'}</div></div>
+        </div>`;
+
+        // --- KPI cards ---
+        const peakBw = hasBw ? Math.max(...iperfResults.map(r => r.summary_bits_per_sec).filter(Boolean)) / 1e6 : null;
+        const kpis = [
+            { label: '平均带宽', value: avgBw != null ? avgBw.toFixed(2) : '-', sub: 'Mbps' },
+            { label: '峰值带宽', value: peakBw != null ? peakBw.toFixed(2) : '-', sub: 'Mbps' },
+            { label: '平均 PPS', value: ppsSummary.avg_pps_kpps != null ? ppsSummary.avg_pps_kpps.toFixed(2) : '-', sub: 'Kpps' },
+            { label: '峰值 PPS', value: ppsSummary.peak_pps_kpps != null ? ppsSummary.peak_pps_kpps.toFixed(2) : '-', sub: 'Kpps' },
+            { label: 'CPS', value: cpsSummary && cpsSummary.cps != null ? num(cpsSummary.cps, 0) : (cps.length ? formatCps(cps[0].cps) : '-'), sub: 'cps' },
+            { label: '并发连接', value: cpsSummary && cpsSummary.conns_succeeded != null ? cpsSummary.conns_succeeded.toLocaleString() : (test.parallel_streams > 1 ? test.parallel_streams + ' (流)' : '-'), sub: '成功建连' },
+        ];
+        html += `<div class="detail-kpis">`;
+        for (const k of kpis) {
+            html += `<div class="detail-kpi"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
+        }
+        html += `</div>`;
+
+        // --- Iperf3 results ---
         if (iperfResults.length > 0) {
+            html += `<div class="detail-block">`;
             html += `<h4>Iperf3 结果</h4>`;
             html += `<table class="detail-table">`;
-            html += `<tr><th>节点</th><th>角色</th><th>带宽</th><th>字节</th><th>包数</th><th>PPS</th><th>重传</th></tr>`;
+            html += `<tr><th>节点</th><th>角色</th><th class="num">带宽</th><th class="num">字节</th><th class="num">包数</th><th class="num">PPS</th><th class="num">重传</th></tr>`;
             for (const r of iperfResults) {
                 html += `<tr>
                     <td>${escapeHtml(r.node_name || '?')}</td>
                     <td>${r.role}</td>
-                    <td>${formatBits(r.summary_bits_per_sec)}</td>
-                    <td>${formatBytes(r.summary_bytes)}</td>
-                    <td>${r.summary_packets || '-'}</td>
-                    <td>${formatPps(r.avg_pps)}</td>
-                    <td>${r.retransmits || '-'}</td>
+                    <td class="num">${formatBits(r.summary_bits_per_sec)}</td>
+                    <td class="num">${formatBytes(r.summary_bytes)}</td>
+                    <td class="num">${r.summary_packets != null ? r.summary_packets.toLocaleString() : '-'}</td>
+                    <td class="num">${formatPps(r.avg_pps)}</td>
+                    <td class="num">${r.retransmits != null ? r.retransmits.toLocaleString() : '-'}</td>
                 </tr>`;
             }
             html += `</table>`;
-
-            // Raw JSON download links
             html += `<div class="detail-actions">`;
             for (const r of iperfResults) {
-                html += `<a class="btn-small" href="/api/tests/${testId}/results/${r.id}/raw" target="_blank">下载 ${escapeHtml(r.node_name || '?')} JSON</a> `;
+                html += `<a class="btn-small" href="/api/tests/${testId}/results/${r.id}/raw" target="_blank">下载 ${escapeHtml(r.node_name || '?')} 原始 JSON</a>`;
             }
+            html += `</div>`;
             html += `</div>`;
         }
 
-        // dperf results
+        // --- CPS results ---
+        if (cps.length > 0) {
+            html += `<div class="detail-block">`;
+            html += `<h4>CPS 结果</h4>`;
+            html += `<table class="detail-table">`;
+            html += `<tr><th>源节点</th><th>目标节点</th><th class="num">CPS</th><th class="num">成功 / 尝试</th><th class="num">成功率</th><th class="num">耗时</th></tr>`;
+            for (const c of cps) {
+                const rate = c.connections_attempted ? (c.connections_succeeded / c.connections_attempted * 100) : 0;
+                html += `<tr>
+                    <td>${escapeHtml(c.source_node_name || '?')}</td>
+                    <td>${escapeHtml(c.target_node_name || '?')}</td>
+                    <td class="num">${formatCps(c.cps)}</td>
+                    <td class="num">${(c.connections_succeeded || 0).toLocaleString()} / ${(c.connections_attempted || 0).toLocaleString()}</td>
+                    <td class="num">${rate.toFixed(1)}%</td>
+                    <td class="num">${c.duration_ms != null ? c.duration_ms.toLocaleString() + ' ms' : '-'}</td>
+                </tr>`;
+            }
+            html += `</table>`;
+            html += `</div>`;
+        }
+
+        // --- dperf results ---
         if (dperfResults.length > 0) {
+            html += `<div class="detail-block">`;
             html += `<h4>dperf 结果</h4>`;
             html += `<table class="detail-table">`;
-            html += `<tr><th>节点</th><th>类型</th><th>发送包</th><th>发送字节</th><th>CPS</th><th>并发数</th></tr>`;
+            html += `<tr><th>节点</th><th>类型</th><th class="num">发送包</th><th class="num">发送字节</th><th class="num">CPS</th><th class="num">并发数</th></tr>`;
             for (const r of dperfResults) {
                 html += `<tr>
                     <td>${escapeHtml(r.node_name || '?')}</td>
                     <td>${r.dperf_type}</td>
-                    <td>${r.snd_packets || '-'}</td>
-                    <td>${formatBytes(r.snd_bytes)}</td>
-                    <td>${r.cps != null ? r.cps.toFixed(0) : '-'}</td>
-                    <td>${r.concurrent != null ? r.concurrent : '-'}</td>
+                    <td class="num">${r.snd_packets != null ? r.snd_packets.toLocaleString() : '-'}</td>
+                    <td class="num">${formatBytes(r.snd_bytes)}</td>
+                    <td class="num">${r.cps != null ? num(r.cps, 0) : '-'}</td>
+                    <td class="num">${r.concurrent != null ? r.concurrent.toLocaleString() : '-'}</td>
                 </tr>`;
             }
             html += `</table>`;
+            html += `</div>`;
         }
 
-        // CPS results
-        if (cps.length > 0) {
-            html += `<h4>CPS 结果</h4>`;
+        // --- Hardware peaks ---
+        if (hwAgg.length > 0) {
+            html += `<div class="detail-block">`;
+            html += `<h4>硬件监控峰值（${hwAgg[0].count > 0 ? hwAgg.map(n => n.name + ':' + n.count + '点').join(' · ') : ''}）</h4>`;
             html += `<table class="detail-table">`;
-            html += `<tr><th>源节点</th><th>目标节点</th><th>CPS</th><th>成功/尝试</th><th>耗时</th></tr>`;
-            for (const c of cps) {
+            html += `<tr><th>节点</th><th class="num">CPU 峰值</th><th class="num">内存峰值</th><th class="num">TX 带宽</th><th class="num">RX 带宽</th><th class="num">TX PPS</th><th class="num">RX PPS</th></tr>`;
+            for (const n of hwAgg) {
                 html += `<tr>
-                    <td>${escapeHtml(c.source_node_name || '?')}</td>
-                    <td>${escapeHtml(c.target_node_name || '?')}</td>
-                    <td>${formatCps(c.cps)}</td>
-                    <td>${c.connections_succeeded || 0} / ${c.connections_attempted || 0}</td>
-                    <td>${c.duration_ms}ms</td>
+                    <td>${escapeHtml(n.name)}</td>
+                    <td class="num">${pct(n.cpu)}</td>
+                    <td class="num">${pct(n.mem)}</td>
+                    <td class="num">${n.tx_mbps.toFixed(2)} Mbps</td>
+                    <td class="num">${n.rx_mbps.toFixed(2)} Mbps</td>
+                    <td class="num">${formatPps(n.tx_pps)}</td>
+                    <td class="num">${formatPps(n.rx_pps)}</td>
                 </tr>`;
             }
             html += `</table>`;
+            html += `</div>`;
         }
 
-        // Concurrent connections from iperf_results streams
-        if (test.parallel_streams > 1) {
-            html += `<h4>并发连接</h4>`;
-            html += `<p>并行流数: ${test.parallel_streams}</p>`;
+        // --- Empty state ---
+        if (iperfResults.length === 0 && cps.length === 0 && dperfResults.length === 0 && hwAgg.length === 0) {
+            html += `<div class="detail-empty">该测试暂无结果数据。</div>`;
         }
 
         html += `</div>`;
