@@ -654,10 +654,10 @@ function renderHistory(tests) {
         const cpsDisplay = t.cps != null ? t.cps.toFixed(0) + ' cps' : '-';
         const connDisplay = t.conns_succeeded != null ? t.conns_succeeded.toLocaleString() : '-';
         return `
-        <tr onclick="showTestDetail(${t.id})" style="cursor:pointer">
-            <td class="td-check"><input type="checkbox" data-id="${t.id}" ${historySelected.has(t.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleSelect(${t.id}, this.checked)"></td>
+        <tr>
+            <td class="td-check"><input type="checkbox" data-id="${t.id}" ${historySelected.has(t.id) ? 'checked' : ''} onclick="toggleSelect(${t.id}, this.checked)"></td>
             <td>${t.id}</td>
-            <td>${escapeHtml(t.name || '-')}</td>
+            <td class="name-td" onclick="showTestDetail(${t.id})">${escapeHtml(t.name || '-')}</td>
             <td>${escapeHtml(clientName)} → ${escapeHtml(serverName)}</td>
             <td>${t.test_type.toUpperCase()}</td>
             <td>${t.duration_sec}s</td>
@@ -669,8 +669,9 @@ function renderHistory(tests) {
             <td>${connDisplay}</td>
             <td class="${statusClass}">${t.status}</td>
             <td>${formatDate(t.started_at)}</td>
-            <td>
-                <button class="btn-small" onclick="event.stopPropagation(); deleteTestItem(${t.id})">删除</button>
+            <td class="td-actions">
+                <button class="btn-small" onclick="showTestDetail(${t.id})">详情</button>
+                <button class="btn-small" onclick="deleteTestItem(${t.id})">删除</button>
             </td>
         </tr>
         `;

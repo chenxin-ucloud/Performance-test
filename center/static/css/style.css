@@ -230,6 +230,12 @@ body {
     font-family: "SF Mono", Monaco, monospace;
     font-size: 0.8rem;
 }
+.history-table-wrapper tbody tr {
+    transition: background 0.15s;
+}
+.history-table-wrapper tbody tr:hover {
+    background: rgba(59,130,246,0.08);
+}
 
 /* Sortable headers + funnel filters in history table */
 .history-table-wrapper th.th-sortable {
@@ -324,6 +330,14 @@ body {
     vertical-align: middle;
 }
 .history-table-wrapper td.td-check { cursor: default; }
+
+/* Name column clickable cell + action column */
+.history-table-wrapper td.name-td {
+    cursor: pointer;
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+.history-table-wrapper td.td-actions { white-space: nowrap; }
 
 /* Batch delete button */
 .batch-delete-btn {
