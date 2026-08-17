@@ -47,7 +47,7 @@ def index():
 
 @api_bp.route("/api/nodes", methods=["GET"])
 def list_nodes():
-    nodes = Node.query.order_by(Node.created_at.desc()).all()
+    nodes = Node.query.filter_by(deleted=False).order_by(Node.created_at.desc()).all()
     return jsonify([n.to_dict() for n in nodes])
 
 
@@ -93,7 +93,10 @@ def update_node(node_id):
 @api_bp.route("/api/nodes/<int:node_id>", methods=["DELETE"])
 def delete_node(node_id):
     node = Node.query.get_or_404(node_id)
-    db.session.delete(node)
+    # Soft delete: mark the node deleted but keep the row so TestRun foreign
+    # keys stay valid and history remains intact. Hidden from all lists.
+    node.deleted = True
+    node.status = "unknown"
     db.session.commit()
     return jsonify({"message": "deleted"})
 

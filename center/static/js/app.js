@@ -105,7 +105,7 @@ async function onAddNode(e) {
 }
 
 async function removeNode(id) {
-    if (!confirm('确定删除该节点?')) return;
+    if (!confirm('删除该节点？节点将从列表移除，其历史测试记录保留。')) return;
     try {
         await deleteNode(id);
         loadNodes();

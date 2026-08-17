@@ -37,6 +37,8 @@ class Node(db.Model):
     status = db.Column(db.String(32), default="unknown")  # online, offline, unknown
     last_seen_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Soft delete — keeps the row so TestRun foreign keys stay valid; hidden from lists
+    deleted = db.Column(db.Boolean, default=False, nullable=False)
 
     # Relationships
     client_tests = db.relationship(
@@ -59,6 +61,7 @@ class Node(db.Model):
             "status": self.status,
             "last_seen_at": _iso(self.last_seen_at),
             "created_at": _iso(self.created_at),
+            "deleted": self.deleted,
         }
 
 
